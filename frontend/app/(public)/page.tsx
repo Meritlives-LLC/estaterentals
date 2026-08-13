@@ -2,6 +2,7 @@
 import { HeroSection } from '@/components/property/HeroSection'
 import { FeaturedSection } from '@/components/property/FeaturedSection'
 import { StatsSection } from '@/components/property/StatsSection'
+import { ThreeSSection } from '@/components/property/ThreeSSection'
 import { CTASection } from '@/components/property/CTASection'
 import type { Metadata } from 'next'
 
@@ -15,6 +16,7 @@ export default function HomePage() {
     <>
       <HeroSection />
       <StatsSection />
+      <ThreeSSection />
       <FeaturedSection />
       <CTASection />
     </>

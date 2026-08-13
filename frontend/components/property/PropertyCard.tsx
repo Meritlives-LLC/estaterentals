@@ -27,9 +27,14 @@ export function PropertyCard({ property, className }: PropertyCardProps) {
       <Link href={`/properties/${property.slug}`} className="block relative h-52 overflow-hidden">
         {image ? (
           <Image
-            src={image.url} alt={image.alt ?? property.title} fill
+            src={image.url}
+            alt={image.alt ?? property.title}
+            fill
             className="object-cover transition-transform duration-500 group-hover:scale-105"
             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+            quality={70}
+            loading="lazy"
+            decoding="async"
           />
         ) : (
           <div className="absolute inset-0 bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-800 flex items-center justify-center">

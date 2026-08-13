@@ -254,7 +254,7 @@ export function PropertyForm({ property }: { property?: any }) {
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mb-5">
           {images.map((img, i) => (
             <div key={img.publicId} className="relative group aspect-square rounded-xl overflow-hidden bg-slate-100 dark:bg-slate-800 border-2 border-transparent hover:border-orange-400 transition-all">
-              <Image src={img.url} alt={img.alt ?? `View ${i + 1}`} fill className="object-cover" sizes="160px" />
+              <Image src={img.url} alt={img.alt ?? `View ${i + 1}`} fill className="object-cover" sizes="160px" quality={60} loading="lazy" decoding="async" />
               {i === 0 && (
                 <span className="absolute top-1.5 left-1.5 text-[9px] font-bold bg-orange-500 text-white px-1.5 py-0.5 rounded-md">
                   COVER

@@ -29,8 +29,14 @@ export function PropertyGallery({ images, title }: PropertyGalleryProps) {
     <>
       <div className="space-y-3">
         <div className="relative h-80 md:h-[480px] rounded-2xl overflow-hidden group bg-slate-100 dark:bg-slate-900">
-          <Image src={images[current].url} alt={images[current].alt ?? title}
-            fill className="object-cover" priority
+          <Image
+            src={images[current].url}
+            alt={images[current].alt ?? title}
+            fill
+            className="object-cover"
+            priority
+            fetchPriority="high"
+            quality={80}
             sizes="(max-width: 1024px) 100vw, 66vw"
           />
           {images.length > 1 && (
@@ -59,7 +65,16 @@ export function PropertyGallery({ images, title }: PropertyGalleryProps) {
                   current === i ? 'border-orange-500 shadow-lg shadow-orange-500/25' : 'border-transparent opacity-60 hover:opacity-100'
                 )}
               >
-                <Image src={img.url} alt={img.alt ?? `Image ${i + 1}`} fill className="object-cover" sizes="96px" />
+                <Image
+                  src={img.url}
+                  alt={img.alt ?? `Image ${i + 1}`}
+                  fill
+                  className="object-cover"
+                  sizes="96px"
+                  quality={50}
+                  loading="lazy"
+                  decoding="async"
+                />
               </button>
             ))}
           </div>
@@ -72,8 +87,14 @@ export function PropertyGallery({ images, title }: PropertyGalleryProps) {
             <X className="w-5 h-5" />
           </button>
           <div className="relative w-full max-w-5xl max-h-[80vh] rounded-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <Image src={images[current].url} alt={images[current].alt ?? title}
-              width={1200} height={800} className="w-full h-full object-contain"
+            <Image
+              src={images[current].url}
+              alt={images[current].alt ?? title}
+              width={1200}
+              height={800}
+              className="w-full h-full object-contain"
+              quality={85}
+              sizes="(max-width: 1280px) 100vw, 1200px"
             />
           </div>
           {images.length > 1 && (

@@ -41,7 +41,13 @@ const nextConfig = {
       { protocol: 'https', hostname: 'images.unsplash.com' },
       { protocol: 'https', hostname: 'lh3.googleusercontent.com' },
     ],
+    // Prefer modern formats; Next serves the best supported by the browser
     formats: ['image/avif', 'image/webp'],
+    // Responsive breakpoints used by next/image
+    deviceSizes: [640, 750, 828, 1080, 1200, 1920],
+    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
+    // Cache optimized images longer (seconds)
+    minimumCacheTTL: 60 * 60 * 24 * 30, // 30 days
   },
   compress: true,
   poweredByHeader: false,
