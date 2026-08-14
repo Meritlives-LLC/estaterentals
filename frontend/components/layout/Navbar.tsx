@@ -9,6 +9,7 @@ import { useTheme } from 'next-themes'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/hooks/useAuth'
 import { logout } from '@/lib/auth'
+import { useSwipeGesture } from '@/hooks/useSwipeGesture'
 
 const navLinks = [
   { href: '/', label: 'Home' },
@@ -32,19 +33,40 @@ export function Navbar() {
     return () => window.removeEventListener('scroll', handleScroll)
   }, [])
 
+  useEffect(() => {
+    if (mobileOpen) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [mobileOpen])
+
+  useEffect(() => {
+    setMobileOpen(false)
+  }, [pathname])
+
+  useSwipeGesture({
+    enabled: mobileOpen,
+    threshold: 50,
+    onSwipe: (dir) => {
+      if (dir === 'left') setMobileOpen(false)
+    },
+  })
+
   const solid = scrolled || !isHome
 
   return (
     <header className={cn(
-      'fixed top-0 left-0 right-0 z-50 transition-all duration-300',
+      'fixed top-0 left-0 right-0 z-50 transition-all duration-300 safe-top',
       solid
         ? 'bg-white/95 dark:bg-slate-950/95 backdrop-blur-md shadow-sm border-b border-slate-200/50 dark:border-slate-800/50'
         : 'bg-transparent'
     )}>
       <div className="container-max section-padding">
-        <nav className="flex items-center justify-between h-16 md:h-20" aria-label="Main navigation">
-
-          {/* JerryHomes logo */}
+        <nav className="flex items-center justify-between h-14 sm:h-16 md:h-20" aria-label="Main navigation">
           <Link href="/" aria-label="JerryHomes — go to homepage" className="flex items-center gap-2">
             <Image
               src="/logo.svg"
@@ -56,7 +78,6 @@ export function Navbar() {
             />
           </Link>
 
-          {/* Desktop links */}
           <div className="hidden md:flex items-center gap-1">
             {navLinks.map((link) => (
               <Link
@@ -78,10 +99,11 @@ export function Navbar() {
           <div className="flex items-center gap-2">
             {mounted && (
               <button
+                type="button"
                 onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
                 aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
                 className={cn(
-                  'p-2 rounded-lg transition-colors',
+                  'p-2.5 rounded-xl transition-colors touch-manipulation',
                   solid
                     ? 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
                     : 'text-white/80 hover:text-white hover:bg-white/10'
@@ -106,9 +128,10 @@ export function Navbar() {
                   <span className="max-w-[100px] truncate">{user.name ?? user.email}</span>
                 </div>
                 <button
+                  type="button"
                   onClick={logout}
                   className={cn(
-                    'p-2 rounded-lg transition-colors',
+                    'p-2 rounded-lg transition-colors touch-manipulation',
                     solid ? 'text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30' : 'text-white/70 hover:text-white hover:bg-white/10'
                   )}
                   title="Sign out"
@@ -128,11 +151,15 @@ export function Navbar() {
               >Sign In</Link>
             )}
             <button
+              type="button"
               onClick={() => setMobileOpen(!mobileOpen)}
               aria-expanded={mobileOpen}
               aria-controls="mobile-menu"
               aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
-              className={cn('md:hidden p-2 rounded-lg', solid ? 'text-slate-700 dark:text-slate-300' : 'text-white')}
+              className={cn(
+                'md:hidden p-2.5 rounded-xl touch-manipulation',
+                solid ? 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800' : 'text-white hover:bg-white/10'
+              )}
             >
               {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
@@ -140,9 +167,11 @@ export function Navbar() {
         </nav>
       </div>
 
-      {/* Mobile menu */}
       {mobileOpen && (
-        <div id="mobile-menu" className="md:hidden bg-white dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 shadow-xl">
+        <div
+          id="mobile-menu"
+          className="md:hidden bg-white dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 shadow-xl max-h-[min(70vh,28rem)] overflow-y-auto overscroll-contain"
+        >
           <div className="container-max section-padding py-4 space-y-1">
             {navLinks.map((link) => (
               <Link
@@ -151,7 +180,7 @@ export function Navbar() {
                 onClick={() => setMobileOpen(false)}
                 aria-current={pathname === link.href ? 'page' : undefined}
                 className={cn(
-                  'flex items-center px-4 py-3 rounded-lg text-sm font-medium transition-colors',
+                  'flex items-center px-4 py-3.5 rounded-xl text-sm font-medium transition-colors touch-manipulation',
                   pathname === link.href
                     ? 'bg-orange-50 dark:bg-orange-950 text-orange-600 dark:text-orange-400'
                     : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900'
@@ -161,7 +190,7 @@ export function Navbar() {
             <Link
               href="/signin"
               onClick={() => setMobileOpen(false)}
-              className="flex items-center px-4 py-3 rounded-lg text-sm font-medium text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950 transition-colors"
+              className="flex items-center px-4 py-3.5 rounded-xl text-sm font-medium text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950 transition-colors touch-manipulation"
             >Sign In →</Link>
           </div>
         </div>
