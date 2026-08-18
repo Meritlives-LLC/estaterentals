@@ -8,6 +8,25 @@ import { slugify, paginate, buildResponse } from '../utils/helpers'
 import { logActivity, getRequestMeta } from '../lib/activity'
 import { AuthRequest } from '../middleware/auth.middleware'
 
+async function assertPropertyAccess(user: { id: string; role: string }, propertyId: string, res: Response) {
+  const property = await prisma.property.findUnique({
+    where: { id: propertyId, deletedAt: null },
+    select: { id: true, createdById: true },
+  })
+
+  if (!property) {
+    res.status(404).json({ success: false, error: 'Property not found' })
+    return null
+  }
+
+  if (user.role === 'STAFF' && property.createdById !== user.id) {
+    res.status(403).json({ success: false, error: 'You do not have permission to manage this property' })
+    return null
+  }
+
+  return property
+}
+
 export async function getProperties(req: any, res: Response) {
   const filters = PropertyFilterSchema.parse(req.query)
   const { skip, take, page, limit } = paginate(filters.page, filters.limit)
@@ -70,6 +89,10 @@ export async function getAdminProperties(req: AuthRequest, res: Response) {
   const { skip, take, page, limit } = paginate(filters.page, filters.limit)
 
   const where: any = { deletedAt: null }
+
+  if (req.user!.role === 'STAFF') {
+    where.createdById = req.user!.id
+  }
 
   if (filters.status) where.status = filters.status
   if (filters.type) where.type = filters.type
@@ -154,6 +177,9 @@ export async function getPropertyBySlug(req: any, res: Response) {
 
 export async function getPropertyById(req: AuthRequest, res: Response) {
   const { id } = req.params
+
+  const accessible = await assertPropertyAccess(req.user!, id, res)
+  if (!accessible) return
 
   const property = await prisma.property.findUnique({
     where: { id, deletedAt: null },
@@ -258,6 +284,10 @@ export async function updateProperty(req: AuthRequest, res: Response) {
     return res.status(404).json({ success: false, error: 'Property not found' })
   }
 
+  if (req.user!.role === 'STAFF' && existing.createdById !== actorId) {
+    return res.status(403).json({ success: false, error: 'You do not have permission to manage this property' })
+  }
+
   let slug = existing.slug
   if (existing.title !== propertyData.title) {
     const newSlug = slugify(propertyData.title)
@@ -343,6 +373,19 @@ export async function patchProperty(req: AuthRequest, res: Response) {
   const meta = getRequestMeta(req)
   const actorId = req.user!.id
 
+  const existing = await prisma.property.findUnique({
+    where: { id, deletedAt: null },
+    select: { id: true, createdById: true },
+  })
+
+  if (!existing) {
+    return res.status(404).json({ success: false, error: 'Property not found' })
+  }
+
+  if (req.user!.role === 'STAFF' && existing.createdById !== actorId) {
+    return res.status(403).json({ success: false, error: 'You do not have permission to manage this property' })
+  }
+
   const property = await prisma.property.update({
     where: { id },
     data: { ...data, updatedById: actorId },
@@ -364,6 +407,19 @@ export async function deleteProperty(req: AuthRequest, res: Response) {
   const { id } = req.params
   const meta = getRequestMeta(req)
   const actorId = req.user!.id
+
+  const existing = await prisma.property.findUnique({
+    where: { id, deletedAt: null },
+    select: { id: true, title: true, createdById: true },
+  })
+
+  if (!existing) {
+    return res.status(404).json({ success: false, error: 'Property not found' })
+  }
+
+  if (req.user!.role === 'STAFF' && existing.createdById !== actorId) {
+    return res.status(403).json({ success: false, error: 'You do not have permission to manage this property' })
+  }
 
   const property = await prisma.property.update({
     where: { id },

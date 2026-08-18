@@ -36,9 +36,13 @@ export async function createVideoUploadAuth(req: AuthRequest, res: Response) {
   if (propertyId) {
     const property = await prisma.property.findFirst({
       where: { id: propertyId, deletedAt: null },
+      select: { id: true, createdById: true },
     })
     if (!property) {
       return res.status(404).json({ success: false, error: 'Property not found' })
+    }
+    if (req.user!.role === 'STAFF' && property.createdById !== req.user!.id) {
+      return res.status(403).json({ success: false, error: 'You do not have permission to manage this property' })
     }
   }
 
@@ -84,9 +88,13 @@ export async function completeVideoUpload(req: AuthRequest, res: Response) {
 
   const property = await prisma.property.findFirst({
     where: { id: data.propertyId, deletedAt: null },
+    select: { id: true, title: true, createdById: true },
   })
   if (!property) {
     return res.status(404).json({ success: false, error: 'Property not found' })
+  }
+  if (req.user!.role === 'STAFF' && property.createdById !== req.user!.id) {
+    return res.status(403).json({ success: false, error: 'You do not have permission to manage this property' })
   }
 
   // Fetch metadata from Bunny if available
@@ -150,19 +158,26 @@ export async function deletePropertyVideo(req: AuthRequest, res: Response) {
 
   const video = await prisma.propertyVideo.findUnique({
     where: { id },
-    include: { property: { select: { id: true, title: true } } },
+    include: { property: { select: { id: true, title: true, createdById: true } } },
   })
 
   if (!video) {
     return res.status(404).json({ success: false, error: 'Video not found' })
   }
 
-  // Delete from Bunny first
+  if (req.user!.role === 'STAFF' && video.property.createdById !== req.user!.id) {
+    return res.status(403).json({ success: false, error: 'You do not have permission to manage this property' })
+  }
+
+  // Delete from Bunny first; do not remove the DB record if Bunny rejects the delete.
   try {
     await deleteBunnyVideo(video.videoId)
   } catch (err) {
-    console.error('[Video] Bunny deletion failed, proceeding with DB cleanup:', err)
-    // Continue — avoid leaving DB record that points to nothing if retry is hard
+    console.error('[Video] Bunny deletion failed; preserving database record for retry:', err)
+    return res.status(502).json({
+      success: false,
+      error: 'Video could not be removed from Bunny Stream. Please try again later.',
+    })
   }
 
   await prisma.propertyVideo.delete({ where: { id } })
