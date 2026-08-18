@@ -53,6 +53,9 @@ api.interceptors.response.use(
 export const authApi: any = {
   login: (email: string, password: string) =>
     api.post('/auth/login', { email, password }),
+  verifyAdminOtp: (email: string, otp: string) =>
+    api.post('/auth/login/verify-otp', { email, otp }),
+  resendAdminOtp: (email: string) => api.post('/auth/login/resend-otp', { email }),
   me: () => api.get('/auth/me'),
   refresh: (refreshToken: string) =>
     api.post('/auth/refresh', { refreshToken }),

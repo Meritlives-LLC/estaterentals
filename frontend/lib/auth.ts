@@ -27,24 +27,34 @@ const VISITOR_REFRESH_OPTS: Cookies.CookieAttributes = { ...COOKIE_OPTIONS, expi
 const ADMIN_ACCESS_OPTS: Cookies.CookieAttributes  = { ...COOKIE_OPTIONS, expires: 1 / 24 }
 const ADMIN_REFRESH_OPTS: Cookies.CookieAttributes = { ...COOKIE_OPTIONS, expires: 8 / 24 }
 
-function setTokens(accessToken: string, refreshToken: string, isAdmin = false) {
+export function setTokens(accessToken: string, refreshToken: string, isAdmin = false) {
   const accessOpts  = isAdmin ? ADMIN_ACCESS_OPTS  : VISITOR_ACCESS_OPTS
   const refreshOpts = isAdmin ? ADMIN_REFRESH_OPTS : VISITOR_REFRESH_OPTS
   Cookies.set('accessToken', accessToken, accessOpts)
   Cookies.set('refreshToken', refreshToken, refreshOpts)
 }
 
-function clearTokens() {
+export function clearTokens() {
   Cookies.remove('accessToken')
   Cookies.remove('refreshToken')
 }
 
 // ─── Admin Login ───────────────────────────────────────
-export async function login(email: string, password: string): Promise<AuthUser> {
+export async function login(email: string, password: string): Promise<{ requiresOtp: true; email: string; message: string }> {
   const res = await authApi.login(email, password)
+  return res.data.data
+}
+
+export async function verifyAdminOtp(email: string, otp: string): Promise<AuthUser> {
+  const res = await authApi.verifyAdminOtp(email, otp)
   const { accessToken, refreshToken, user } = res.data.data
-  setTokens(accessToken, refreshToken, true) // admin — 1hr session
+  setTokens(accessToken, refreshToken, true)
   return user
+}
+
+export async function resendAdminOtp(email: string): Promise<{ requiresOtp: true }> {
+  const res = await authApi.resendAdminOtp(email)
+  return res.data.data
 }
 
 // ─── Visitor Login ─────────────────────────────────────

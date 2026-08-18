@@ -26,6 +26,7 @@ model User {
   createdProperties Property[]    @relation("PropertyCreatedBy")
   updatedProperties Property[]    @relation("PropertyUpdatedBy")
   activityLogs      ActivityLog[]
+  emailOtps         EmailOtp[]
 
   @@index([email])
   @@index([username])
@@ -33,6 +34,25 @@ model User {
   @@index([role])
   @@index([isActive])
   @@map("users")
+}
+
+model EmailOtp {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose     String    @default("ADMIN_LOGIN")
+  codeHash    String
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5)
+  expiresAt   DateTime
+  usedAt      DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId, purpose, revokedAt, usedAt, expiresAt])
+  @@index([purpose, expiresAt])
+  @@map("email_otps")
 }
 
 model Property {

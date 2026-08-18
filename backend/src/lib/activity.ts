@@ -1,12 +1,17 @@
 // backend/src/lib/activity.ts
+import { Prisma } from '@prisma/client'
 import { prisma } from './prisma'
 import { Request } from 'express'
 import { AuthRequest } from '../middleware/auth.middleware'
 
 export type ActivityAction =
   | 'LOGIN'
+  | 'LOGIN_SUCCESS'
   | 'LOGOUT'
   | 'LOGIN_FAILED'
+  | 'OTP_SENT'
+  | 'OTP_VERIFIED'
+  | 'OTP_FAILED'
   | 'PASSWORD_CHANGED'
   | 'ACCOUNT_CREATED'
   | 'PROFILE_UPDATED'
@@ -34,7 +39,7 @@ interface LogActivityParams {
   entityId?: string
   ipAddress?: string | null
   userAgent?: string | null
-  metadata?: Record<string, unknown> | null
+  metadata?: Prisma.InputJsonValue | null
 }
 
 /**

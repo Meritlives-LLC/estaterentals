@@ -6,6 +6,15 @@ export const LoginSchema = z.object({
   password: z.string().min(6, 'Password must be at least 6 characters'),
 })
 
+export const AdminOtpVerifySchema = z.object({
+  email: z.string().trim().min(1, 'Email required'),
+  otp: z.string().regex(/^\d{6}$/, 'OTP must be a 6-digit code'),
+})
+
+export const AdminOtpResendSchema = z.object({
+  email: z.string().trim().min(1, 'Email required'),
+})
+
 export const StaffLoginSchema = z.object({
   username: z.string().min(3).max(50),
   password: z.string().min(6),

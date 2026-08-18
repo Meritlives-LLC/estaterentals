@@ -59,7 +59,14 @@ const authLimiter = rateLimit({
   max: 10,
   message: { success: false, error: 'Too many login attempts, please try again later.' },
 })
+const otpLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 10,
+  message: { success: false, error: 'Too many OTP attempts, please wait before trying again.' },
+})
 app.use('/api/auth/login', authLimiter)
+app.use('/api/auth/login/verify-otp', otpLimiter)
+app.use('/api/auth/login/resend-otp', otpLimiter)
 app.use('/api/auth/staff/login', authLimiter)
 
 // ─── Body Parsing ─────────────────────────────────────

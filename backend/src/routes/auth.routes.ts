@@ -2,6 +2,8 @@
 import { Router } from 'express'
 import {
   login,
+  verifyAdminOtp,
+  resendAdminOtp,
   refresh,
   me,
   googleAuth,
@@ -16,6 +18,8 @@ const router = Router()
 
 // Admin / staff login (email or username)
 router.post('/login', login)
+router.post('/login/verify-otp', verifyAdminOtp)
+router.post('/login/resend-otp', resendAdminOtp)
 router.post('/staff/login', staffLogin)
 router.post('/refresh', refresh)
 router.get('/me', authenticate, me)
