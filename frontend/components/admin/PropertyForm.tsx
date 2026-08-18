@@ -66,22 +66,31 @@ export function PropertyForm({ property }: { property?: any }) {
       : null
   )
   const [geocoding, setGeocoding] = useState(false)
+  const [locationStatus, setLocationStatus] = useState<'idle' | 'finding' | 'found' | 'manual' | 'error'>('idle')
+  const mapRef = useRef<HTMLDivElement | null>(null)
+  const mapInstanceRef = useRef<any>(null)
+  const markerRef = useRef<any>(null)
 
   const geocode = useCallback(async (address: string, city: string, state: string) => {
     const query = [address, city, state, 'Nigeria'].filter(Boolean).join(', ')
     if (query.replace(/,/g, '').trim().length < 5) return
+
     setGeocoding(true)
+    setLocationStatus('finding')
+
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`,
-        { headers: { 'Accept-Language': 'en' } }
-      )
-      const data = await res.json()
-      if (data[0]) {
-        setCoords({ lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) })
+      const res = await propertyApi.geocode({ address, city, state, country: 'Nigeria' })
+      const result = res.data?.data
+      if (result?.latitude != null && result?.longitude != null) {
+        const nextCoords = { lat: Number(result.latitude), lng: Number(result.longitude) }
+        setCoords(nextCoords)
+        setLocationStatus('found')
+        return
       }
+      setLocationStatus('error')
     } catch (e) {
       console.error('Geocode failed', e)
+      setLocationStatus('error')
     } finally {
       setGeocoding(false)
     }
@@ -118,9 +127,66 @@ export function PropertyForm({ property }: { property?: any }) {
       if (watchedAddress && watchedCity && watchedState) {
         geocode(watchedAddress, watchedCity, watchedState)
       }
-    }, 1200)
+    }, 700)
     return () => clearTimeout(timer)
   }, [watchedAddress, watchedCity, watchedState, geocode])
+
+  useEffect(() => {
+    if (!mapRef.current) return
+
+    const center = coords ?? { lat: 9.0765, lng: 7.3986 }
+
+    const initMap = async () => {
+      const L = (await import('leaflet')).default
+
+      delete (L.Icon.Default.prototype as any)._getIconUrl
+      L.Icon.Default.mergeOptions({
+        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+      })
+
+      if (!mapInstanceRef.current) {
+        const map = L.map(mapRef.current!, {
+          center: [center.lat, center.lng],
+          zoom: 15,
+          scrollWheelZoom: true,
+        })
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors',
+          maxZoom: 19,
+        }).addTo(map)
+
+        const marker = L.marker([center.lat, center.lng], {
+          draggable: true,
+        }).addTo(map)
+
+        marker.on('dragend', () => {
+          const next = marker.getLatLng()
+          setCoords({ lat: next.lat, lng: next.lng })
+          setLocationStatus('manual')
+        })
+
+        mapInstanceRef.current = map
+        markerRef.current = marker
+      } else {
+        mapInstanceRef.current.setView([center.lat, center.lng], 15)
+        if (markerRef.current) {
+          markerRef.current.setLatLng([center.lat, center.lng])
+        }
+      }
+    }
+
+    void initMap()
+
+    return () => {
+      if (mapInstanceRef.current && !document.querySelector('.leaflet-container') && mapRef.current) {
+        mapInstanceRef.current.remove()
+        mapInstanceRef.current = null
+      }
+    }
+  }, [coords])
 
   const uploadImages = async (files: FileList) => {
     const remaining = MAX_IMAGES - images.length
@@ -480,27 +546,37 @@ export function PropertyForm({ property }: { property?: any }) {
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 p-6">
         <h2 className="font-display font-semibold text-slate-900 dark:text-white mb-1 flex items-center gap-2">
           <MapPin className="w-5 h-5 text-orange-500" />
-          Map Coordinates
+          Property Address
         </h2>
         <p className="text-slate-400 text-xs mb-4">
-          Automatically detected from the address. No action needed.
+          The map updates as the address is entered, then you can drag the marker to fine-tune the exact location.
         </p>
+
         <div className={cn(
-          "flex items-center gap-3 px-4 py-3 rounded-xl text-sm",
-          geocoding
+          "flex items-center gap-3 px-4 py-3 rounded-xl text-sm mb-4",
+          geocoding || locationStatus === 'finding'
             ? "bg-orange-50 dark:bg-orange-950/30 text-orange-600"
-            : coords
+            : locationStatus === 'found' || locationStatus === 'manual'
             ? "bg-green-50 dark:bg-green-950/30 text-green-600"
+            : locationStatus === 'error'
+            ? "bg-red-50 dark:bg-red-950/30 text-red-600"
             : "bg-slate-50 dark:bg-slate-800 text-slate-400"
         )}>
-          {geocoding ? (
-            <><Loader2 className="w-4 h-4 animate-spin shrink-0" /> Detecting location from address...</>
-          ) : coords ? (
-            <><CheckCircle className="w-4 h-4 shrink-0" /> Location detected — Lat: {coords.lat.toFixed(5)}, Lng: {coords.lng.toFixed(5)}</>
+          {geocoding || locationStatus === 'finding' ? (
+            <><Loader2 className="w-4 h-4 animate-spin shrink-0" /> Finding location...</>
+          ) : locationStatus === 'found' || locationStatus === 'manual' ? (
+            <><CheckCircle className="w-4 h-4 shrink-0" /> {locationStatus === 'manual' ? 'Location adjusted manually' : 'Location found'} — Lat: {coords?.lat.toFixed(5)}, Lng: {coords?.lng.toFixed(5)}</>
+          ) : locationStatus === 'error' ? (
+            <><AlertCircle className="w-4 h-4 shrink-0" /> Unable to find this address. Please adjust the location manually.</>
           ) : (
-            <><MapPin className="w-4 h-4 shrink-0" /> Fill in the address above to auto-detect coordinates</>
+            <><MapPin className="w-4 h-4 shrink-0" /> Drag the marker to adjust the exact location</>
           )}
         </div>
+
+        <div
+          ref={mapRef}
+          className="w-full h-72 rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800"
+        />
       </div>
 
       {/* ── Videos (Bunny Stream via TUS) ───────────────── */}

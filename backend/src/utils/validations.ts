@@ -44,6 +44,14 @@ export const UpdateStaffSchema = z.object({
   isActive: z.boolean().optional(),
 })
 
+const latitudeSchema = z.coerce.number().refine((value) => Number.isFinite(value) && value >= -90 && value <= 90, {
+  message: 'Latitude must be between -90 and 90',
+})
+
+const longitudeSchema = z.coerce.number().refine((value) => Number.isFinite(value) && value >= -180 && value <= 180, {
+  message: 'Longitude must be between -180 and 180',
+})
+
 export const PropertySchema = z.object({
   title: z.string().min(5).max(200),
   description: z.string().min(20),
@@ -59,8 +67,8 @@ export const PropertySchema = z.object({
   bathrooms: z.coerce.number().min(0).max(20),
   listingType: z.enum(['RENT', 'SALE']).default('RENT'),
   area: z.coerce.number().positive().optional(),
-  latitude: z.coerce.number().optional(),
-  longitude: z.coerce.number().optional(),
+  latitude: latitudeSchema.optional(),
+  longitude: longitudeSchema.optional(),
   featured: z.boolean().default(false),
   amenities: z.array(z.string()).optional(),
   images: z
@@ -135,6 +143,19 @@ export const ActivityFilterSchema = z.object({
   userId: z.string().optional(),
   page: z.coerce.number().default(1),
   limit: z.coerce.number().default(20),
+})
+
+export const PropertyLocationSchema = z.object({
+  latitude: latitudeSchema,
+  longitude: longitudeSchema,
+  address: z.string().min(1).optional(),
+})
+
+export const GeocodeQuerySchema = z.object({
+  address: z.string().trim().min(1).optional(),
+  city: z.string().trim().min(1).optional(),
+  state: z.string().trim().min(1).optional(),
+  country: z.string().trim().min(1).optional().default('Nigeria'),
 })
 
 export const VideoCompleteSchema = z.object({

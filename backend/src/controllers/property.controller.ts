@@ -3,7 +3,12 @@ import { Response } from 'express'
 import { prisma } from '../lib/prisma'
 import { deleteImage } from '../lib/cloudinary'
 import { deleteBunnyVideo } from '../lib/bunny'
-import { PropertySchema, PropertyPatchSchema, PropertyFilterSchema } from '../utils/validations'
+import {
+  PropertySchema,
+  PropertyPatchSchema,
+  PropertyFilterSchema,
+  PropertyLocationSchema,
+} from '../utils/validations'
 import { slugify, paginate, buildResponse } from '../utils/helpers'
 import { logActivity, getRequestMeta } from '../lib/activity'
 import { AuthRequest } from '../middleware/auth.middleware'
@@ -202,6 +207,101 @@ export async function getPropertyById(req: AuthRequest, res: Response) {
   }
 
   return res.status(200).json(buildResponse(safe))
+}
+
+export async function geocodePropertyAddress(req: AuthRequest, res: Response) {
+  const query = req.query as Record<string, string | undefined>
+  const address = query.address?.trim() || ''
+  const city = query.city?.trim() || ''
+  const state = query.state?.trim() || ''
+  const country = query.country?.trim() || 'Nigeria'
+  const combined = [address, city, state, country].filter(Boolean).join(', ')
+
+  if (!combined || combined.replace(/,/g, '').trim().length < 5) {
+    return res.status(400).json({ success: false, error: 'A valid address is required to geocode' })
+  }
+
+  const url = new URL('https://nominatim.openstreetmap.org/search')
+  url.searchParams.set('q', combined)
+  url.searchParams.set('format', 'jsonv2')
+  url.searchParams.set('limit', '1')
+  url.searchParams.set('addressdetails', '1')
+  url.searchParams.set('countrycodes', 'ng')
+
+  try {
+    const response = await fetch(url.toString(), {
+      headers: {
+        'Accept-Language': 'en',
+        'User-Agent': 'JerryHomes/1.0',
+      },
+    })
+
+    if (!response.ok) {
+      return res.status(502).json({ success: false, error: 'Unable to find this address right now.' })
+    }
+
+    const data = (await response.json()) as Array<{ lat?: string; lon?: string; display_name?: string }>
+    const match = data[0]
+
+    if (!match?.lat || !match?.lon) {
+      return res.status(404).json({ success: false, error: 'Unable to find this address. Please adjust the location manually.' })
+    }
+
+    return res.status(200).json(
+      buildResponse(
+        {
+          latitude: Number(match.lat),
+          longitude: Number(match.lon),
+          displayName: match.display_name || combined,
+        },
+        'Location found'
+      )
+    )
+  } catch {
+    return res.status(502).json({ success: false, error: 'Geocoding service unavailable. Please adjust the location manually.' })
+  }
+}
+
+export async function updatePropertyLocation(req: AuthRequest, res: Response) {
+  const { id } = req.params
+  const data = PropertyLocationSchema.parse(req.body)
+  const meta = getRequestMeta(req)
+  const actorId = req.user!.id
+
+  const property = await prisma.property.findUnique({
+    where: { id, deletedAt: null },
+    select: { id: true, title: true, createdById: true, address: true },
+  })
+
+  if (!property) {
+    return res.status(404).json({ success: false, error: 'Property not found' })
+  }
+
+  if (req.user!.role === 'STAFF' && property.createdById !== actorId) {
+    return res.status(403).json({ success: false, error: 'You do not have permission to manage this property' })
+  }
+
+  const updated = await prisma.property.update({
+    where: { id },
+    data: {
+      latitude: data.latitude,
+      longitude: data.longitude,
+      address: data.address ?? property.address,
+      updatedById: actorId,
+    },
+  })
+
+  await logActivity({
+    userId: actorId,
+    action: 'PROPERTY_LOCATION_UPDATED',
+    description: `Location updated for property ${updated.title}`,
+    entityType: 'Property',
+    entityId: updated.id,
+    ...meta,
+    metadata: { propertyId: updated.id, latitude: updated.latitude, longitude: updated.longitude },
+  })
+
+  return res.status(200).json(buildResponse(updated, 'Property location updated'))
 }
 
 export async function createProperty(req: AuthRequest, res: Response) {

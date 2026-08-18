@@ -208,9 +208,13 @@ export async function reorderVideos(req: AuthRequest, res: Response) {
 
   const property = await prisma.property.findFirst({
     where: { id: propertyId, deletedAt: null },
+    select: { id: true, title: true, createdById: true },
   })
   if (!property) {
     return res.status(404).json({ success: false, error: 'Property not found' })
+  }
+  if (req.user!.role === 'STAFF' && property.createdById !== req.user!.id) {
+    return res.status(403).json({ success: false, error: 'You do not have permission to manage this property' })
   }
 
   await prisma.$transaction(
@@ -240,6 +244,19 @@ export async function reorderVideos(req: AuthRequest, res: Response) {
  */
 export async function listPropertyVideos(req: AuthRequest, res: Response) {
   const { propertyId } = req.params
+
+  const property = await prisma.property.findFirst({
+    where: { id: propertyId, deletedAt: null },
+    select: { id: true, createdById: true },
+  })
+
+  if (!property) {
+    return res.status(404).json({ success: false, error: 'Property not found' })
+  }
+
+  if (req.user!.role === 'STAFF' && property.createdById !== req.user!.id) {
+    return res.status(403).json({ success: false, error: 'You do not have permission to manage this property' })
+  }
 
   const videos = await prisma.propertyVideo.findMany({
     where: { propertyId },

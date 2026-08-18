@@ -77,12 +77,16 @@ export const propertyApi = {
     api.get(`/properties/slug/${slug}`),
   getById: (id: string) =>
     api.get(`/properties/${id}`),
+  geocode: (params: { address?: string; city?: string; state?: string; country?: string }) =>
+    api.get('/properties/geocode', { params }),
   create: (data: any) =>
     api.post('/properties', data),
   update: (id: string, data: any) =>
     api.put(`/properties/${id}`, data),
   patch: (id: string, data: any) =>
     api.patch(`/properties/${id}`, data),
+  updateLocation: (id: string, data: { latitude: number; longitude: number; address?: string }) =>
+    api.patch(`/properties/${id}/location`, data),
   delete: (id: string) =>
     api.delete(`/properties/${id}`),
 }
