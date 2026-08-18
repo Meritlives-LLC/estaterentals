@@ -70,17 +70,15 @@ export async function googleSignIn(idToken: string): Promise<AuthUser> {
 // ─── Logout ────────────────────────────────────────────
 export async function logout() {
   try {
-    await authApi.refresh() // ensure tokens valid or clearing will still work
+    await authApi.logout()
   } catch {}
-  await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000'}/api/auth/logout`, { method: 'POST', credentials: 'include' })
   window.location.href = '/'
 }
 
 export async function adminLogout() {
   try {
-    await authApi.refresh()
+    await authApi.logout()
   } catch {}
-  await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000'}/api/auth/logout`, { method: 'POST', credentials: 'include' })
   window.location.href = '/admin/login'
 }
 

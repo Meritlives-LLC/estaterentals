@@ -68,6 +68,7 @@ export const authApi: any = {
   resendAdminOtp: (challengeId: string) => api.post('/auth/login/resend-otp', { challengeId }),
   me: () => api.get('/auth/me'),
   refresh: () => api.post('/auth/refresh'),
+  logout: () => api.post('/auth/logout'),
   googleAuth: (idToken: string) =>
     api.post('/auth/google', { idToken }),
   visitorLogin: (email: string, password: string) =>

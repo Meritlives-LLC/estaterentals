@@ -21,8 +21,11 @@ const cspDirectives = [
   "font-src 'self' data:",
   [
     "connect-src 'self'",
+    // Dev dual-server: allow localhost backend. Production is same-origin (/api).
     // Strip /api path — CSP connect-src needs the origin only, not a path prefix
-    (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000').replace(/\/api$/, ''),
+    ...(isProd
+      ? []
+      : [(process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000').replace(/\/api$/, '')]),
     "https://accounts.google.com",
     "https://oauth2.googleapis.com",
     "https://www.googleapis.com",
@@ -71,13 +74,20 @@ const nextConfig = {
     ]
   },
   async rewrites() {
-    // Proxy /api requests to the backend API in production via a server-side
-    // rewrite. The target is configurable via `ESTATE_API_URL` (server-only)
-    // or `NEXT_PUBLIC_API_URL` as a fallback.
-    // Normalize target: remove trailing slashes and any trailing '/api'
-    let target = (process.env.ESTATE_API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000')
-    target = target.replace(/\/+$/, '')
-    target = target.replace(/\/api$/, '')
+    // Combined production server (server.js) routes /api/* to Express directly.
+    // Do NOT rewrite to an external backend in production — that caused
+    // cross-origin cookie failures (Vercel → Render) and is no longer needed.
+    //
+    // In development, optionally proxy /api to a standalone backend so
+    // `next dev` alone can talk to `backend` on another port.
+    if (isProd || process.env.COMBINED_SERVER === '1') {
+      return []
+    }
+    let target =
+      process.env.ESTATE_API_URL ??
+      process.env.NEXT_PUBLIC_API_URL ??
+      'http://localhost:5000'
+    target = target.replace(/\/+$/, '').replace(/\/api$/, '')
     return [
       {
         source: '/api/:path*',
