@@ -3,7 +3,7 @@ import { Request, Response, NextFunction } from 'express'
 import { verifyAccessToken } from '../utils/jwt'
 
 export interface AuthRequest extends Request {
-  user?: { id: string; email: string; role: string }
+  user?: { id: string; email?: string | null; role: string; username?: string | null }
 }
 
 export function authenticate(req: AuthRequest, res: Response, next: NextFunction) {
@@ -23,6 +23,7 @@ export function authenticate(req: AuthRequest, res: Response, next: NextFunction
   }
 }
 
+/** ADMIN or SUPER_ADMIN only */
 export function requireAdmin(req: AuthRequest, res: Response, next: NextFunction) {
   if (!req.user) {
     return res.status(401).json({ success: false, error: 'Unauthorized' })
@@ -33,6 +34,7 @@ export function requireAdmin(req: AuthRequest, res: Response, next: NextFunction
   next()
 }
 
+/** SUPER_ADMIN only */
 export function requireSuperAdmin(req: AuthRequest, res: Response, next: NextFunction) {
   if (!req.user) {
     return res.status(401).json({ success: false, error: 'Unauthorized' })
@@ -41,4 +43,24 @@ export function requireSuperAdmin(req: AuthRequest, res: Response, next: NextFun
     return res.status(403).json({ success: false, error: 'Super Admin access required' })
   }
   next()
+}
+
+/**
+ * STAFF, ADMIN, or SUPER_ADMIN — for property ops and messages.
+ * Does NOT grant user/staff management rights.
+ */
+export function requireStaffOrAdmin(req: AuthRequest, res: Response, next: NextFunction) {
+  if (!req.user) {
+    return res.status(401).json({ success: false, error: 'Unauthorized' })
+  }
+  const allowed = ['STAFF', 'ADMIN', 'SUPER_ADMIN']
+  if (!allowed.includes(req.user.role)) {
+    return res.status(403).json({ success: false, error: 'Staff or Admin access required' })
+  }
+  next()
+}
+
+/** Any authenticated non-visitor role that can manage content */
+export function requireContentManager(req: AuthRequest, res: Response, next: NextFunction) {
+  return requireStaffOrAdmin(req, res, next)
 }

@@ -1,30 +1,30 @@
 // backend/src/routes/upload.routes.ts
 import { Router } from 'express'
 import { uploadSingle, uploadMultiple, removeImage } from '../controllers/upload.controller'
-import { authenticate, requireAdmin } from '../middleware/auth.middleware'
+import { authenticate, requireStaffOrAdmin } from '../middleware/auth.middleware'
 import { upload, validateFileMagicBytes } from '../middleware/upload.middleware'
 
 const router = Router()
 
-// All upload routes require admin
+// Staff + Admin can upload images
 router.post(
   '/single',
   authenticate,
-  requireAdmin,
+  requireStaffOrAdmin,
   upload.single('file'),
-  validateFileMagicBytes,  // ← magic byte check AFTER multer buffers the file
+  validateFileMagicBytes,
   uploadSingle
 )
 
 router.post(
   '/multiple',
   authenticate,
-  requireAdmin,
+  requireStaffOrAdmin,
   upload.array('files', 10),
-  validateFileMagicBytes,  // ← same for multiple files
+  validateFileMagicBytes,
   uploadMultiple
 )
 
-router.delete('/', authenticate, requireAdmin, removeImage)
+router.delete('/', authenticate, requireStaffOrAdmin, removeImage)
 
 export default router

@@ -12,6 +12,13 @@ import {
   Loader2, ImagePlus, Copy, ExternalLink, MapPin,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import {
+  VideoUploader,
+  mapExistingVideos,
+  hasActiveVideoUpload,
+} from '@/components/admin/VideoUploader'
+import type { PendingVideo } from '@/lib/tusUpload'
+import { completePropertyVideo } from '@/lib/tusUpload'
 
 const MAX_IMAGES = 5
 
@@ -40,6 +47,9 @@ export function PropertyForm({ property }: { property?: any }) {
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [images, setImages] = useState<UploadedImage[]>(property?.images ?? [])
+  const [videos, setVideos] = useState<PendingVideo[]>(() =>
+    mapExistingVideos(property?.videos ?? [])
+  )
   const [amenitiesList, setAmenitiesList] = useState<string[]>(
     property?.amenities?.map((a: any) => a.name) ?? []
   )
@@ -154,13 +164,45 @@ export function PropertyForm({ property }: { property?: any }) {
 
   const onSubmit = async (data: PropertyFormData) => {
     setSubmitError('')
-    const payload = { ...data, images, amenities: amenitiesList, latitude: coords?.lat, longitude: coords?.lng }
+    if (hasActiveVideoUpload(videos)) {
+      setSubmitError('Please wait for video uploads to finish before saving.')
+      return
+    }
+    const failedVideos = videos.filter((v) => v.status === 'error')
+    if (failedVideos.length) {
+      setSubmitError('Remove or retry failed video uploads before saving.')
+      return
+    }
+    // Do not send videos in the property body — media is managed via dedicated endpoints
+    const payload = {
+      ...data,
+      images,
+      amenities: amenitiesList,
+      latitude: coords?.lat,
+      longitude: coords?.lng,
+    }
     try {
       let res
       if (isEditing) {
         res = await propertyApi.update(property.id, payload)
       } else {
         res = await propertyApi.create(payload)
+        const newId = res.data.data.id as string
+        // Attach any videos that finished TUS but are not yet registered
+        const pending = videos.filter((v) => v.status === 'success' && v.videoId && !v.dbId)
+        for (let i = 0; i < pending.length; i++) {
+          const v = pending[i]
+          try {
+            await completePropertyVideo({
+              videoId: v.videoId!,
+              propertyId: newId,
+              title: v.title || v.fileName,
+              order: v.order ?? i,
+            })
+          } catch (e) {
+            console.error('Failed to register video after create', e)
+          }
+        }
       }
       setSavedSlug(res.data.data.slug)
       setSubmitted(true)
@@ -461,6 +503,14 @@ export function PropertyForm({ property }: { property?: any }) {
         </div>
       </div>
 
+      {/* ── Videos (Bunny Stream via TUS) ───────────────── */}
+      <VideoUploader
+        propertyId={isEditing ? property.id : undefined}
+        videos={videos}
+        onChange={setVideos}
+        disabled={isSubmitting}
+      />
+
       {/* ── Amenities ───────────────────────────────────── */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 p-6">
         <h2 className="font-display font-semibold text-slate-900 dark:text-white mb-4">Amenities & Features</h2>
@@ -519,7 +569,7 @@ export function PropertyForm({ property }: { property?: any }) {
       <div className="flex gap-4">
         <button
           type="submit"
-          disabled={isSubmitting || uploading}
+          disabled={isSubmitting || uploading || hasActiveVideoUpload(videos)}
           className="flex items-center gap-2 px-8 py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-xl font-medium transition-all shadow-lg shadow-orange-500/25 hover:-translate-y-0.5 active:translate-y-0"
         >
           {isSubmitting

@@ -9,19 +9,29 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  name      String?
-  email     String   @unique
-  password  String?
-  role      Role     @default(VISITOR)
-  image     String?
-  googleId  String?  @unique
-  provider  String?  @default("local") // "local" | "google"
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String    @id @default(cuid())
+  name        String?
+  email       String?   @unique
+  username    String?   @unique
+  password    String?
+  role        Role      @default(VISITOR)
+  image       String?
+  googleId    String?   @unique
+  provider    String?   @default("local") // "local" | "google"
+  isActive    Boolean   @default(true)
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  createdProperties Property[]    @relation("PropertyCreatedBy")
+  updatedProperties Property[]    @relation("PropertyUpdatedBy")
+  activityLogs      ActivityLog[]
 
   @@index([email])
+  @@index([username])
   @@index([googleId])
+  @@index([role])
+  @@index([isActive])
   @@map("users")
 }
 
@@ -32,6 +42,7 @@ model Property {
   description String
   price       Decimal         @db.Decimal(12, 2)
   priceUnit   PriceUnit       @default(MONTH)
+  listingType ListingType     @default(RENT)
   location    String
   city        String
   state       String
@@ -46,11 +57,17 @@ model Property {
   areaUnit    String          @default("sqm")
   featured    Boolean         @default(false)
   images      PropertyImage[]
+  videos      PropertyVideo[]
   amenities   Amenity[]
   viewCount   Int             @default(0)
   deletedAt   DateTime?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
+
+  createdById String?
+  createdBy   User?           @relation("PropertyCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById String?
+  updatedBy   User?           @relation("PropertyUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
 
   @@index([city])
   @@index([type])
@@ -58,6 +75,9 @@ model Property {
   @@index([featured])
   @@index([price])
   @@index([deletedAt])
+  @@index([listingType])
+  @@index([createdById])
+  @@index([updatedById])
   @@map("properties")
 }
 
@@ -73,6 +93,28 @@ model PropertyImage {
 
   @@index([propertyId])
   @@map("property_images")
+}
+
+model PropertyVideo {
+  id           String   @id @default(cuid())
+  url          String?
+  videoId      String   // Bunny Stream video GUID
+  thumbnailUrl String?
+  title        String?
+  duration     Int?     // seconds
+  width        Int?
+  height       Int?
+  format       String?
+  size         BigInt?  // bytes
+  order        Int      @default(0)
+  propertyId   String
+  property     Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([propertyId])
+  @@index([videoId])
+  @@map("property_videos")
 }
 
 model Amenity {
@@ -104,8 +146,29 @@ model Message {
   @@map("messages")
 }
 
+model ActivityLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action      String
+  description String?
+  entityType  String?
+  entityId    String?
+  ipAddress   String?
+  userAgent   String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
+
 enum Role {
   VISITOR
+  STAFF
   ADMIN
   SUPER_ADMIN
 }
@@ -131,6 +194,11 @@ enum PriceUnit {
   YEAR
   WEEK
   DAY
+}
+
+enum ListingType {
+  RENT
+  SALE
 }
 
 enum MessageStatus {

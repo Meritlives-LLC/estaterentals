@@ -3,41 +3,166 @@ import { Request, Response } from 'express'
 import bcrypt from 'bcryptjs'
 import { prisma } from '../lib/prisma'
 import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from '../utils/jwt'
-import { LoginSchema } from '../utils/validations'
+import { LoginSchema, ChangePasswordSchema, StaffLoginSchema } from '../utils/validations'
 import { buildResponse } from '../utils/helpers'
+import { logActivity, getRequestMeta } from '../lib/activity'
+import { AuthRequest } from '../middleware/auth.middleware'
 
-// ─── Admin Login (email + password) ──────────────────
+// ─── Admin / Staff Login (email or username + password) ──────────────────
 export async function login(req: Request, res: Response) {
   const data = LoginSchema.parse(req.body)
+  const meta = getRequestMeta(req)
 
-  const user = await prisma.user.findUnique({
-    where: { email: data.email.toLowerCase() },
+  // Support both email and username for staff/admin
+  const identifier = data.email.toLowerCase().trim()
+
+  let user = await prisma.user.findUnique({
+    where: { email: identifier },
   })
 
+  if (!user) {
+    user = await prisma.user.findUnique({
+      where: { username: identifier },
+    })
+  }
+
   if (!user || !user.password) {
+    await logActivity({
+      action: 'LOGIN_FAILED',
+      description: `Failed login attempt for identifier: ${identifier}`,
+      ...meta,
+      metadata: { identifier },
+    })
     return res.status(401).json({ success: false, error: 'Invalid credentials' })
   }
 
-  // Only allow ADMIN and SUPER_ADMIN to use the admin login endpoint
+  // Only allow STAFF, ADMIN, SUPER_ADMIN on this endpoint
   if (user.role === 'VISITOR') {
     return res.status(403).json({ success: false, error: 'Access denied. Use visitor login.' })
   }
 
+  if (user.isActive === false) {
+    return res.status(403).json({ success: false, error: 'Account is disabled. Contact an administrator.' })
+  }
+
   const isValid = await bcrypt.compare(data.password, user.password)
   if (!isValid) {
+    await logActivity({
+      userId: user.id,
+      action: 'LOGIN_FAILED',
+      description: `Failed login attempt for ${user.role}`,
+      ...meta,
+    })
     return res.status(401).json({ success: false, error: 'Invalid credentials' })
   }
 
-  const payload = { id: user.id, email: user.email, role: user.role }
+  // Update last login
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { lastLoginAt: new Date() },
+  })
+
+  const payload = {
+    id: user.id,
+    email: user.email,
+    username: user.username,
+    role: user.role,
+  }
   const accessToken = generateAccessToken(payload)
   const refreshToken = generateRefreshToken(payload)
+
+  await logActivity({
+    userId: user.id,
+    action: 'LOGIN',
+    description: `${user.role} logged in`,
+    ...meta,
+  })
 
   return res.status(200).json(
     buildResponse(
       {
         accessToken,
         refreshToken,
-        user: { id: user.id, name: user.name, email: user.email, role: user.role },
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          username: user.username,
+          role: user.role,
+          image: user.image,
+        },
+      },
+      'Login successful'
+    )
+  )
+}
+
+// ─── Dedicated staff login (username + password) ─────
+export async function staffLogin(req: Request, res: Response) {
+  const data = StaffLoginSchema.parse(req.body)
+  const meta = getRequestMeta(req)
+
+  const user = await prisma.user.findUnique({
+    where: { username: data.username.toLowerCase().trim() },
+  })
+
+  if (!user || !user.password || user.role !== 'STAFF') {
+    await logActivity({
+      action: 'LOGIN_FAILED',
+      description: `Failed staff login for username: ${data.username}`,
+      ...meta,
+    })
+    return res.status(401).json({ success: false, error: 'Invalid credentials' })
+  }
+
+  if (user.isActive === false) {
+    return res.status(403).json({ success: false, error: 'Account is disabled. Contact an administrator.' })
+  }
+
+  const isValid = await bcrypt.compare(data.password, user.password)
+  if (!isValid) {
+    await logActivity({
+      userId: user.id,
+      action: 'LOGIN_FAILED',
+      description: 'Failed staff login',
+      ...meta,
+    })
+    return res.status(401).json({ success: false, error: 'Invalid credentials' })
+  }
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { lastLoginAt: new Date() },
+  })
+
+  const payload = {
+    id: user.id,
+    email: user.email,
+    username: user.username,
+    role: user.role,
+  }
+  const accessToken = generateAccessToken(payload)
+  const refreshToken = generateRefreshToken(payload)
+
+  await logActivity({
+    userId: user.id,
+    action: 'LOGIN',
+    description: 'Staff logged in',
+    ...meta,
+  })
+
+  return res.status(200).json(
+    buildResponse(
+      {
+        accessToken,
+        refreshToken,
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          username: user.username,
+          role: user.role,
+        },
       },
       'Login successful'
     )
@@ -47,6 +172,7 @@ export async function login(req: Request, res: Response) {
 // ─── Google OAuth (visitor sign-in) ──────────────────
 export async function googleAuth(req: Request, res: Response) {
   const { idToken } = req.body
+  const meta = getRequestMeta(req)
 
   if (!idToken) {
     return res.status(400).json({ success: false, error: 'Google ID token required' })
@@ -61,7 +187,7 @@ export async function googleAuth(req: Request, res: Response) {
       return res.status(401).json({ success: false, error: 'Invalid Google token' })
     }
 
-    const googleData = await googleRes.json() as {
+    const googleData = (await googleRes.json()) as {
       sub: string
       email: string
       name?: string
@@ -105,23 +231,50 @@ export async function googleAuth(req: Request, res: Response) {
           role: 'VISITOR',
         },
       })
+
+      await logActivity({
+        userId: user.id,
+        action: 'ACCOUNT_CREATED',
+        description: 'Visitor account created via Google',
+        entityType: 'User',
+        entityId: user.id,
+        ...meta,
+      })
     } else {
       user = await prisma.user.update({
         where: { id: user.id },
-        data: { name: name ?? user.name, image: picture ?? user.image },
+        data: { name: name ?? user.name, image: picture ?? user.image, lastLoginAt: new Date() },
       })
     }
 
-    const payload = { id: user.id, email: user.email, role: user.role }
+    const payload = {
+      id: user.id,
+      email: user.email,
+      username: user.username,
+      role: user.role,
+    }
     const accessToken = generateAccessToken(payload)
     const refreshToken = generateRefreshToken(payload)
+
+    await logActivity({
+      userId: user.id,
+      action: 'LOGIN',
+      description: 'Visitor Google login',
+      ...meta,
+    })
 
     return res.status(200).json(
       buildResponse(
         {
           accessToken,
           refreshToken,
-          user: { id: user.id, name: user.name, email: user.email, role: user.role, image: user.image },
+          user: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            image: user.image,
+          },
         },
         'Google sign-in successful'
       )
@@ -135,6 +288,7 @@ export async function googleAuth(req: Request, res: Response) {
 // ─── Visitor Register ─────────────────────────────────
 export async function visitorRegister(req: Request, res: Response) {
   const { name, email, password } = req.body
+  const meta = getRequestMeta(req)
 
   if (!name || !email || !password) {
     return res.status(400).json({ success: false, error: 'Name, email, and password are required' })
@@ -146,10 +300,10 @@ export async function visitorRegister(req: Request, res: Response) {
 
   const existing = await prisma.user.findUnique({ where: { email: email.toLowerCase() } })
   if (existing) {
-    // Generic message — do NOT reveal whether the email is registered (prevents enumeration)
     return res.status(409).json({
       success: false,
-      error: 'Unable to create account with these details. Try signing in instead, or use a different email.',
+      error:
+        'Unable to create account with these details. Try signing in instead, or use a different email.',
     })
   }
 
@@ -165,9 +319,23 @@ export async function visitorRegister(req: Request, res: Response) {
     },
   })
 
-  const payload = { id: user.id, email: user.email, role: user.role }
+  const payload = {
+    id: user.id,
+    email: user.email,
+    username: user.username,
+    role: user.role,
+  }
   const accessToken = generateAccessToken(payload)
   const refreshToken = generateRefreshToken(payload)
+
+  await logActivity({
+    userId: user.id,
+    action: 'ACCOUNT_CREATED',
+    description: 'Visitor account created',
+    entityType: 'User',
+    entityId: user.id,
+    ...meta,
+  })
 
   return res.status(201).json(
     buildResponse(
@@ -184,6 +352,7 @@ export async function visitorRegister(req: Request, res: Response) {
 // ─── Visitor Login ────────────────────────────────────
 export async function visitorLogin(req: Request, res: Response) {
   const { email, password } = req.body
+  const meta = getRequestMeta(req)
 
   if (!email || !password) {
     return res.status(400).json({ success: false, error: 'Email and password are required' })
@@ -192,17 +361,49 @@ export async function visitorLogin(req: Request, res: Response) {
   const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } })
 
   if (!user || !user.password || user.role !== 'VISITOR') {
+    await logActivity({
+      action: 'LOGIN_FAILED',
+      description: `Failed visitor login for ${email}`,
+      ...meta,
+    })
     return res.status(401).json({ success: false, error: 'Invalid credentials' })
+  }
+
+  if (user.isActive === false) {
+    return res.status(403).json({ success: false, error: 'Account is disabled.' })
   }
 
   const isValid = await bcrypt.compare(password, user.password)
   if (!isValid) {
+    await logActivity({
+      userId: user.id,
+      action: 'LOGIN_FAILED',
+      description: 'Failed visitor login',
+      ...meta,
+    })
     return res.status(401).json({ success: false, error: 'Invalid credentials' })
   }
 
-  const payload = { id: user.id, email: user.email, role: user.role }
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { lastLoginAt: new Date() },
+  })
+
+  const payload = {
+    id: user.id,
+    email: user.email,
+    username: user.username,
+    role: user.role,
+  }
   const accessToken = generateAccessToken(payload)
   const refreshToken = generateRefreshToken(payload)
+
+  await logActivity({
+    userId: user.id,
+    action: 'LOGIN',
+    description: 'Visitor logged in',
+    ...meta,
+  })
 
   return res.status(200).json(
     buildResponse(
@@ -232,7 +433,16 @@ export async function refresh(req: Request, res: Response) {
       return res.status(401).json({ success: false, error: 'User not found' })
     }
 
-    const newPayload = { id: user.id, email: user.email, role: user.role }
+    if (user.isActive === false) {
+      return res.status(403).json({ success: false, error: 'Account is disabled' })
+    }
+
+    const newPayload = {
+      id: user.id,
+      email: user.email,
+      username: user.username,
+      role: user.role,
+    }
     const accessToken = generateAccessToken(newPayload)
 
     return res.status(200).json(buildResponse({ accessToken }, 'Token refreshed'))
@@ -242,13 +452,66 @@ export async function refresh(req: Request, res: Response) {
 }
 
 // ─── Get Current User ─────────────────────────────────
-export async function me(req: any, res: Response) {
+export async function me(req: AuthRequest, res: Response) {
   const user = await prisma.user.findUnique({
-    where: { id: req.user.id },
-    select: { id: true, name: true, email: true, role: true, image: true, createdAt: true },
+    where: { id: req.user!.id },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      username: true,
+      role: true,
+      image: true,
+      isActive: true,
+      lastLoginAt: true,
+      createdAt: true,
+    },
   })
 
   if (!user) return res.status(404).json({ success: false, error: 'User not found' })
 
   return res.status(200).json(buildResponse(user))
+}
+
+// ─── Change Own Password ──────────────────────────────
+export async function changePassword(req: AuthRequest, res: Response) {
+  const data = ChangePasswordSchema.parse(req.body)
+  const meta = getRequestMeta(req)
+  const userId = req.user!.id
+
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  if (!user || !user.password) {
+    return res.status(400).json({ success: false, error: 'Password change not available for this account' })
+  }
+
+  const isValid = await bcrypt.compare(data.currentPassword, user.password)
+  if (!isValid) {
+    return res.status(400).json({ success: false, error: 'Current password is incorrect' })
+  }
+
+  if (data.newPassword !== data.confirmPassword) {
+    return res.status(400).json({ success: false, error: 'New password and confirmation do not match' })
+  }
+
+  if (data.newPassword.length < 8) {
+    return res.status(400).json({ success: false, error: 'New password must be at least 8 characters' })
+  }
+
+  const hashed = await bcrypt.hash(data.newPassword, 12)
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { password: hashed },
+  })
+
+  await logActivity({
+    userId,
+    action: 'PASSWORD_CHANGED',
+    description: 'User changed their own password',
+    entityType: 'User',
+    entityId: userId,
+    ...meta,
+  })
+
+  return res.status(200).json(buildResponse(null, 'Password changed successfully'))
 }

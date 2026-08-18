@@ -2,12 +2,24 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Home, MessageSquare, ExternalLink, ShieldCheck, X } from 'lucide-react'
+import {
+  LayoutDashboard,
+  Home,
+  MessageSquare,
+  ExternalLink,
+  ShieldCheck,
+  X,
+  Users,
+  Activity,
+  KeyRound,
+  UserPlus,
+  PlusCircle,
+} from 'lucide-react'
 import { useEffect } from 'react'
 import { cn, getInitials } from '@/lib/utils'
 
 interface AdminSidebarProps {
-  user: { name?: string | null; email?: string | null; role: string }
+  user: { name?: string | null; email?: string | null; username?: string | null; role: string }
   basePath?: string
   mobileOpen?: boolean
   onMobileClose?: () => void
@@ -20,6 +32,8 @@ export function AdminSidebar({
   onMobileClose,
 }: AdminSidebarProps) {
   const pathname = usePathname()
+  const isStaff = user.role === 'STAFF'
+  const isAdmin = user.role === 'ADMIN' || user.role === 'SUPER_ADMIN'
 
   useEffect(() => {
     onMobileClose?.()
@@ -36,11 +50,32 @@ export function AdminSidebar({
     }
   }, [mobileOpen])
 
-  const navItems = [
+  const staffNav = [
     { href: basePath, icon: LayoutDashboard, label: 'Dashboard' },
     { href: `${basePath}/properties`, icon: Home, label: 'Properties' },
-    { href: `${basePath}/messages`, icon: MessageSquare, label: 'Messages' },
+    { href: `${basePath}/properties/new`, icon: PlusCircle, label: 'Add Property' },
+    { href: `${basePath}/messages`, icon: MessageSquare, label: 'Customer Messages' },
+    { href: `${basePath}/change-password`, icon: KeyRound, label: 'Change Password' },
   ]
+
+  const adminNav = [
+    { href: basePath, icon: LayoutDashboard, label: 'Dashboard' },
+    { href: `${basePath}/properties`, icon: Home, label: 'Properties' },
+    { href: `${basePath}/properties/new`, icon: PlusCircle, label: 'Add Property' },
+    { href: `${basePath}/staff`, icon: UserPlus, label: 'Staff Management' },
+    { href: `${basePath}/messages`, icon: MessageSquare, label: 'Messages' },
+    { href: `${basePath}/activity`, icon: Activity, label: 'Activity' },
+    { href: `${basePath}/change-password`, icon: KeyRound, label: 'Change Password' },
+  ]
+
+  const navItems = isStaff ? staffNav : adminNav
+
+  const roleLabel =
+    user.role === 'SUPER_ADMIN'
+      ? 'Super Admin Portal'
+      : user.role === 'STAFF'
+        ? 'Staff Portal'
+        : 'Admin Portal'
 
   const sidebarContent = (collapsed: boolean, isMobile = false) => (
     <>
@@ -71,60 +106,47 @@ export function AdminSidebar({
       {!collapsed && (
         <div className="mx-3 mt-3 px-3 py-2 bg-orange-500/10 border border-orange-500/20 rounded-xl flex items-center gap-2">
           <ShieldCheck className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-          <span className="text-orange-400 text-xs font-medium">
-            {user.role === 'SUPER_ADMIN' ? 'Super Admin Portal' : 'Admin Portal'}
-          </span>
+          <span className="text-orange-400 text-xs font-medium">{roleLabel}</span>
         </div>
       )}
 
       <nav className="flex-1 py-6 px-3 space-y-1 overflow-y-auto overscroll-contain">
-        {!collapsed && (
-          <p className="text-slate-600 text-xs font-medium uppercase tracking-wider px-3 mb-3">Main Menu</p>
-        )}
-        {navItems.map(({ href, icon: Icon, label }) => {
-          const isActive = href === basePath ? pathname === href : pathname.startsWith(href)
+        {navItems.map((item) => {
+          const active =
+            item.href === basePath
+              ? pathname === basePath
+              : pathname.startsWith(item.href)
           return (
             <Link
-              key={href}
-              href={href}
-              onClick={isMobile ? onMobileClose : undefined}
-              className={cn('admin-sidebar-link', isActive && 'active')}
-              title={collapsed ? label : undefined}
+              key={item.href}
+              href={item.href}
+              className={cn(
+                'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors',
+                active
+                  ? 'bg-orange-500/15 text-orange-400'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+              )}
             >
-              <Icon className="w-4 h-4 shrink-0" />
-              {!collapsed && <span>{label}</span>}
+              <item.icon className="w-5 h-5 shrink-0" />
+              {!collapsed && <span>{item.label}</span>}
             </Link>
           )
         })}
-
-        <div className="pt-4 mt-4 border-t border-slate-800/50">
-          {!collapsed && (
-            <p className="text-slate-600 text-xs font-medium uppercase tracking-wider px-3 mb-3">External</p>
-          )}
-          <Link
-            href="/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="admin-sidebar-link"
-            title={collapsed ? 'View Site' : undefined}
-          >
-            <ExternalLink className="w-4 h-4 shrink-0" />
-            {!collapsed && <span>View Site</span>}
-          </Link>
-        </div>
       </nav>
 
-      <div className="p-3 border-t border-slate-800/50">
-        <div className={cn('flex items-center gap-3 px-2 py-2 rounded-xl', !collapsed && 'bg-slate-900/50')}>
-          <div className="w-8 h-8 bg-orange-500/20 border border-orange-500/30 rounded-lg flex items-center justify-center shrink-0">
-            <span className="text-orange-400 text-xs font-bold">
-              {getInitials(user.name ?? user.email ?? 'A')}
-            </span>
+      <div className="px-3 py-4 border-t border-slate-800/50 shrink-0">
+        <div className="flex items-center gap-3 px-2">
+          <div className="w-9 h-9 rounded-full bg-slate-700 flex items-center justify-center text-xs font-semibold text-white">
+            {getInitials(user.name || user.username || user.email || 'U')}
           </div>
           {!collapsed && (
-            <div className="min-w-0 flex-1">
-              <p className="text-white text-sm font-medium truncate">{user.name ?? 'Admin'}</p>
-              <p className="text-slate-500 text-xs truncate">{user.role}</p>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-white truncate">
+                {user.name || user.username || 'User'}
+              </p>
+              <p className="text-xs text-slate-500 truncate">
+                {user.username || user.email}
+              </p>
             </div>
           )}
         </div>
@@ -134,37 +156,20 @@ export function AdminSidebar({
 
   return (
     <>
-      {/* Desktop sidebar */}
-      <aside className="hidden lg:flex flex-col bg-slate-950 text-white transition-all duration-300 border-r border-slate-800/50 shrink-0 w-64">
+      {/* Desktop */}
+      <aside className="hidden lg:flex flex-col w-64 bg-slate-950 border-r border-slate-800/50 h-screen sticky top-0">
         {sidebarContent(false)}
       </aside>
 
-      {/* Mobile overlay + drawer */}
-      <div
-        className={cn(
-          'fixed inset-0 z-50 lg:hidden transition-opacity duration-300',
-          mobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-        )}
-        aria-hidden={!mobileOpen}
-      >
-        <button
-          type="button"
-          className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-          onClick={onMobileClose}
-          aria-label="Close menu"
-        />
-        <aside
-          className={cn(
-            'absolute top-0 left-0 bottom-0 w-[min(100%,18rem)] max-w-[85vw] bg-slate-950 text-white flex flex-col shadow-2xl transition-transform duration-300 ease-out',
-            mobileOpen ? 'translate-x-0' : '-translate-x-full'
-          )}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Admin navigation"
-        >
-          {sidebarContent(false, true)}
-        </aside>
-      </div>
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <div className="absolute inset-0 bg-black/60" onClick={onMobileClose} />
+          <aside className="absolute left-0 top-0 bottom-0 w-72 bg-slate-950 flex flex-col shadow-2xl">
+            {sidebarContent(false, true)}
+          </aside>
+        </div>
+      )}
     </>
   )
 }

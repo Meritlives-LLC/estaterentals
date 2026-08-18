@@ -50,7 +50,7 @@ api.interceptors.response.use(
 )
 
 // ─── Auth ─────────────────────────────────────────────
-export const authApi = {
+export const authApi: any = {
   login: (email: string, password: string) =>
     api.post('/auth/login', { email, password }),
   me: () => api.get('/auth/me'),
@@ -114,3 +114,48 @@ export const uploadApi = {
 export const dashboardApi = {
   getStats: () => api.get('/dashboard/stats'),
 }
+
+// ─── Staff ────────────────────────────────────────────
+export const staffApi = {
+  create: (data: { username: string; password: string; name?: string }) =>
+    api.post('/staff', data),
+  list: (params?: Record<string, any>) => api.get('/staff', { params }),
+  get: (id: string) => api.get(`/staff/${id}`),
+  update: (id: string, data: any) => api.patch(`/staff/${id}`, data),
+  setStatus: (id: string, isActive: boolean) =>
+    api.patch(`/staff/${id}/status`, { isActive }),
+  delete: (id: string) => api.delete(`/staff/${id}`),
+}
+
+// ─── Activity ─────────────────────────────────────────
+export const activityApi = {
+  list: (params?: Record<string, any>) => api.get('/activity', { params }),
+  staff: (staffId: string, params?: Record<string, any>) =>
+    api.get(`/activity/staff/${staffId}`, { params }),
+}
+
+// ─── Videos (Bunny Stream) ────────────────────────────
+export const videoApi = {
+  getUploadAuth: (data: { title?: string; propertyId?: string; videoId?: string }) =>
+    api.post('/videos/signature', data),
+  complete: (data: {
+    videoId: string
+    propertyId: string
+    title?: string
+    order?: number
+  }) => api.post('/videos/complete', data),
+  delete: (id: string) => api.delete(`/videos/${id}`),
+  list: (propertyId: string) => api.get(`/videos/property/${propertyId}`),
+  reorder: (propertyId: string, videoIds: string[]) =>
+    api.patch(`/videos/property/${propertyId}/reorder`, { videoIds }),
+}
+
+// ─── Auth extras ──────────────────────────────────────
+authApi.changePassword = (data: {
+  currentPassword: string
+  newPassword: string
+  confirmPassword: string
+}) => api.post('/auth/change-password', data)
+
+authApi.staffLogin = (username: string, password: string) =>
+  api.post('/auth/staff/login', { username, password })

@@ -13,6 +13,9 @@ import propertyRoutes from './routes/property.routes'
 import messageRoutes from './routes/message.routes'
 import uploadRoutes from './routes/upload.routes'
 import dashboardRoutes from './routes/dashboard.routes'
+import staffRoutes from './routes/staff.routes'
+import activityRoutes from './routes/activity.routes'
+import videoRoutes from './routes/video.routes'
 import { errorHandler, notFound } from './middleware/error.middleware'
 
 const app = express()
@@ -43,7 +46,7 @@ app.use(
 
 // ─── Rate Limiting ────────────────────────────────────
 const limiter = rateLimit({
-  windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS ?? 900000), // 15 min
+  windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS ?? 900000),
   max: Number(process.env.RATE_LIMIT_MAX ?? 100),
   message: { success: false, error: 'Too many requests, please try again later.' },
   standardHeaders: true,
@@ -51,13 +54,13 @@ const limiter = rateLimit({
 })
 app.use('/api', limiter)
 
-// Stricter limit on auth routes
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
   message: { success: false, error: 'Too many login attempts, please try again later.' },
 })
 app.use('/api/auth/login', authLimiter)
+app.use('/api/auth/staff/login', authLimiter)
 
 // ─── Body Parsing ─────────────────────────────────────
 app.use(express.json({ limit: '10mb' }))
@@ -85,6 +88,9 @@ app.use('/api/properties', propertyRoutes)
 app.use('/api/messages', messageRoutes)
 app.use('/api/upload', uploadRoutes)
 app.use('/api/dashboard', dashboardRoutes)
+app.use('/api/staff', staffRoutes)
+app.use('/api/activity', activityRoutes)
+app.use('/api/videos', videoRoutes)
 
 // ─── 404 & Error Handling ─────────────────────────────
 app.use(notFound)

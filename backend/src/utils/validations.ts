@@ -2,8 +2,37 @@
 import { z } from 'zod'
 
 export const LoginSchema = z.object({
-  email: z.string().email('Invalid email'),
+  email: z.string().min(1, 'Email or username is required'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
+})
+
+export const StaffLoginSchema = z.object({
+  username: z.string().min(3).max(50),
+  password: z.string().min(6),
+})
+
+export const ChangePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8, 'New password must be at least 8 characters'),
+  confirmPassword: z.string().min(1),
+}).refine((d) => d.newPassword === d.confirmPassword, {
+  message: 'Passwords do not match',
+  path: ['confirmPassword'],
+})
+
+export const CreateStaffSchema = z.object({
+  username: z
+    .string()
+    .min(3)
+    .max(50)
+    .regex(/^[a-zA-Z0-9._-]+$/, 'Username may only contain letters, numbers, dots, underscores and hyphens'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  name: z.string().min(2).max(100).optional(),
+})
+
+export const UpdateStaffSchema = z.object({
+  name: z.string().min(2).max(100).optional(),
+  isActive: z.boolean().optional(),
 })
 
 export const PropertySchema = z.object({
@@ -25,14 +54,32 @@ export const PropertySchema = z.object({
   longitude: z.coerce.number().optional(),
   featured: z.boolean().default(false),
   amenities: z.array(z.string()).optional(),
-  images: z.array(
-    z.object({
-      url: z.string().url(),
-      publicId: z.string(),
-      alt: z.string().optional(),
-      order: z.number().optional(),
-    })
-  ).optional(),
+  images: z
+    .array(
+      z.object({
+        url: z.string().url(),
+        publicId: z.string(),
+        alt: z.string().optional(),
+        order: z.number().optional(),
+      })
+    )
+    .optional(),
+  videos: z
+    .array(
+      z.object({
+        videoId: z.string(),
+        url: z.string().optional().nullable(),
+        thumbnailUrl: z.string().optional().nullable(),
+        title: z.string().optional().nullable(),
+        duration: z.number().optional().nullable(),
+        width: z.number().optional().nullable(),
+        height: z.number().optional().nullable(),
+        format: z.string().optional().nullable(),
+        size: z.number().optional().nullable(),
+        order: z.number().optional(),
+      })
+    )
+    .optional(),
 })
 
 export const PropertyPatchSchema = z.object({
@@ -43,7 +90,11 @@ export const PropertyPatchSchema = z.object({
 export const MessageSchema = z.object({
   name: z.string().min(2).max(100),
   email: z.string().email(),
-  phone: z.string().regex(/^[+\d\s()-]{7,20}$/).optional().or(z.literal('')),
+  phone: z
+    .string()
+    .regex(/^[+\d\s()-]{7,20}$/)
+    .optional()
+    .or(z.literal('')),
   subject: z.string().min(3).max(200),
   body: z.string().min(10).max(2000),
   propertyId: z.string().optional(),
@@ -65,4 +116,21 @@ export const PropertyFilterSchema = z.object({
   page: z.coerce.number().default(1),
   limit: z.coerce.number().default(9),
   listingType: z.string().optional(),
+})
+
+export const ActivityFilterSchema = z.object({
+  search: z.string().optional(),
+  action: z.string().optional(),
+  role: z.string().optional(),
+  entityType: z.string().optional(),
+  userId: z.string().optional(),
+  page: z.coerce.number().default(1),
+  limit: z.coerce.number().default(20),
+})
+
+export const VideoCompleteSchema = z.object({
+  videoId: z.string().min(1),
+  propertyId: z.string().min(1),
+  title: z.string().optional(),
+  order: z.number().optional(),
 })

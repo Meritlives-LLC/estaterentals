@@ -8,6 +8,7 @@ import { propertyApi } from '@/lib/api'
 import { formatPrice, getPropertyTypeLabel } from '@/lib/utils'
 import { ContactPropertyForm } from '@/components/property/ContactPropertyForm'
 import { PropertyGallery } from '@/components/property/PropertyGallery'
+import { PropertyVideoPlayer } from '@/components/property/PropertyVideoPlayer'
 import { PropertyMap } from '@/components/property/PropertyMap'
 import { Bed, Bath, Maximize, MapPin, CheckCircle, Phone, MessageCircle, Calendar } from 'lucide-react'
 
@@ -60,6 +61,10 @@ export default function PropertyDetailPage() {
           {/* Main */}
           <div className="lg:col-span-2 space-y-8">
             <PropertyGallery images={property.images} title={property.title} />
+
+            {property.videos?.length > 0 && (
+              <PropertyVideoPlayer videos={property.videos} propertyTitle={property.title} />
+            )}
 
             <div>
               <div className="flex flex-wrap items-start justify-between gap-4">

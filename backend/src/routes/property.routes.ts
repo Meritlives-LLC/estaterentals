@@ -10,7 +10,7 @@ import {
   patchProperty,
   deleteProperty,
 } from '../controllers/property.controller'
-import { authenticate, requireAdmin } from '../middleware/auth.middleware'
+import { authenticate, requireStaffOrAdmin } from '../middleware/auth.middleware'
 
 const router = Router()
 
@@ -18,12 +18,12 @@ const router = Router()
 router.get('/', getProperties)
 router.get('/slug/:slug', getPropertyBySlug)
 
-// --- Admin Routes ---
-router.get('/admin', authenticate, requireAdmin, getAdminProperties)
-router.get('/:id', authenticate, requireAdmin, getPropertyById)
-router.post('/', authenticate, requireAdmin, createProperty)
-router.put('/:id', authenticate, requireAdmin, updateProperty)
-router.patch('/:id', authenticate, requireAdmin, patchProperty)
-router.delete('/:id', authenticate, requireAdmin, deleteProperty)
+// --- Staff / Admin Routes ---
+router.get('/admin', authenticate, requireStaffOrAdmin, getAdminProperties)
+router.get('/:id', authenticate, requireStaffOrAdmin, getPropertyById)
+router.post('/', authenticate, requireStaffOrAdmin, createProperty)
+router.put('/:id', authenticate, requireStaffOrAdmin, updateProperty)
+router.patch('/:id', authenticate, requireStaffOrAdmin, patchProperty)
+router.delete('/:id', authenticate, requireStaffOrAdmin, deleteProperty)
 
 export default router
