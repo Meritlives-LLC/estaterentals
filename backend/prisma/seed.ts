@@ -20,21 +20,32 @@ async function main() {
   }
 
   const hashedPassword = await bcrypt.hash(adminPassword, 12)
-  const admin = await prisma.user.upsert({
+  const existingAdmin = await prisma.user.findUnique({
     where: { email: adminEmail },
-    update: {
-      password: hashedPassword,
-      name: adminName,
-      role: 'ADMIN',
-    },
-    create: {
-      name: adminName,
-      email: adminEmail,
-      password: hashedPassword,
-      role: 'ADMIN',
-    },
   })
-  console.log('✅ Admin upserted:', admin.email)
+
+  let admin
+
+  if (existingAdmin) {
+    admin = existingAdmin
+
+    console.log(
+      `⏭️ Admin already exists: ${adminEmail}. Keeping existing password.`
+    )
+  } else {
+    const hashedPassword = await bcrypt.hash(adminPassword, 12)
+
+    admin = await prisma.user.create({
+      data: {
+        name: adminName,
+        email: adminEmail,
+        password: hashedPassword,
+        role: 'ADMIN',
+      },
+    })
+
+    console.log(`✅ Admin created: ${adminEmail}`)
+  }
 
   const properties = [
     {
