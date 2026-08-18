@@ -70,16 +70,25 @@ export function PropertyForm({ property }: { property?: any }) {
   const mapRef = useRef<HTMLDivElement | null>(null)
   const mapInstanceRef = useRef<any>(null)
   const markerRef = useRef<any>(null)
+  const geocodeRequestIdRef = useRef(0)
+  const geocodeAbortRef = useRef<AbortController | null>(null)
 
   const geocode = useCallback(async (address: string, city: string, state: string) => {
     const query = [address, city, state, 'Nigeria'].filter(Boolean).join(', ')
     if (query.replace(/,/g, '').trim().length < 5) return
 
+    const requestId = ++geocodeRequestIdRef.current
+    geocodeAbortRef.current?.abort()
+    const controller = new AbortController()
+    geocodeAbortRef.current = controller
+
     setGeocoding(true)
     setLocationStatus('finding')
 
     try {
-      const res = await propertyApi.geocode({ address, city, state, country: 'Nigeria' })
+      const res = await propertyApi.geocode({ address, city, state, country: 'Nigeria' }, controller.signal)
+      if (requestId !== geocodeRequestIdRef.current) return
+
       const result = res.data?.data
       if (result?.latitude != null && result?.longitude != null) {
         const nextCoords = { lat: Number(result.latitude), lng: Number(result.longitude) }
@@ -88,11 +97,12 @@ export function PropertyForm({ property }: { property?: any }) {
         return
       }
       setLocationStatus('error')
-    } catch (e) {
+    } catch (e: any) {
+      if (controller.signal.aborted || e?.code === 'ERR_CANCELED') return
       console.error('Geocode failed', e)
-      setLocationStatus('error')
+      if (requestId === geocodeRequestIdRef.current) setLocationStatus('error')
     } finally {
-      setGeocoding(false)
+      if (requestId === geocodeRequestIdRef.current) setGeocoding(false)
     }
   }, [])
 
@@ -134,7 +144,9 @@ export function PropertyForm({ property }: { property?: any }) {
   useEffect(() => {
     if (!mapRef.current) return
 
-    const center = coords ?? { lat: 9.0765, lng: 7.3986 }
+    const center = coords ?? { lat: property?.latitude ?? 9.0765, lng: property?.longitude ?? 7.3986 }
+
+    let disposed = false
 
     const initMap = async () => {
       const L = (await import('leaflet')).default
@@ -146,47 +158,53 @@ export function PropertyForm({ property }: { property?: any }) {
         shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
       })
 
-      if (!mapInstanceRef.current) {
-        const map = L.map(mapRef.current!, {
-          center: [center.lat, center.lng],
-          zoom: 15,
-          scrollWheelZoom: true,
-        })
+      if (disposed) return
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; OpenStreetMap contributors',
-          maxZoom: 19,
-        }).addTo(map)
-
-        const marker = L.marker([center.lat, center.lng], {
-          draggable: true,
-        }).addTo(map)
-
-        marker.on('dragend', () => {
-          const next = marker.getLatLng()
-          setCoords({ lat: next.lat, lng: next.lng })
-          setLocationStatus('manual')
-        })
-
-        mapInstanceRef.current = map
-        markerRef.current = marker
-      } else {
-        mapInstanceRef.current.setView([center.lat, center.lng], 15)
-        if (markerRef.current) {
-          markerRef.current.setLatLng([center.lat, center.lng])
-        }
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove()
+        mapInstanceRef.current = null
       }
+
+      if (markerRef.current) {
+        markerRef.current = null
+      }
+
+      const map = L.map(mapRef.current!, {
+        center: [center.lat, center.lng],
+        zoom: 15,
+        scrollWheelZoom: true,
+      })
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 19,
+      }).addTo(map)
+
+      const marker = L.marker([center.lat, center.lng], {
+        draggable: true,
+      }).addTo(map)
+
+      marker.on('dragend', () => {
+        const next = marker.getLatLng()
+        setCoords({ lat: next.lat, lng: next.lng })
+        setLocationStatus('manual')
+      })
+
+      mapInstanceRef.current = map
+      markerRef.current = marker
     }
 
     void initMap()
 
     return () => {
-      if (mapInstanceRef.current && !document.querySelector('.leaflet-container') && mapRef.current) {
+      disposed = true
+      if (mapInstanceRef.current) {
         mapInstanceRef.current.remove()
         mapInstanceRef.current = null
       }
+      markerRef.current = null
     }
-  }, [coords])
+  }, [coords, property?.latitude, property?.longitude])
 
   const uploadImages = async (files: FileList) => {
     const remaining = MAX_IMAGES - images.length

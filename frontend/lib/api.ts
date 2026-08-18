@@ -77,8 +77,8 @@ export const propertyApi = {
     api.get(`/properties/slug/${slug}`),
   getById: (id: string) =>
     api.get(`/properties/${id}`),
-  geocode: (params: { address?: string; city?: string; state?: string; country?: string }) =>
-    api.get('/properties/geocode', { params }),
+  geocode: (params: { address?: string; city?: string; state?: string; country?: string }, signal?: AbortSignal) =>
+    api.get('/properties/geocode', { params, signal }),
   create: (data: any) =>
     api.post('/properties', data),
   update: (id: string, data: any) =>

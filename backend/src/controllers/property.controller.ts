@@ -13,6 +13,47 @@ import { slugify, paginate, buildResponse } from '../utils/helpers'
 import { logActivity, getRequestMeta } from '../lib/activity'
 import { AuthRequest } from '../middleware/auth.middleware'
 
+const GEOCODE_CACHE_TTL_MS = 1000 * 60 * 60 * 24
+const GEOCODE_CACHE_MAX_ENTRIES = 500
+const geocodeCache = new Map<string, { expiresAt: number; value: { latitude: number; longitude: number; displayName: string } }>()
+
+function normalizeGeocodeQuery(value: string) {
+  return value
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/\s*,\s*/g, ', ')
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+}
+
+function purgeExpiredGeocodeCache() {
+  const now = Date.now()
+  for (const [key, entry] of geocodeCache.entries()) {
+    if (entry.expiresAt <= now) geocodeCache.delete(key)
+  }
+}
+
+function getCachedGeocodeResult(query: string) {
+  purgeExpiredGeocodeCache()
+  const key = normalizeGeocodeQuery(query)
+  const cached = geocodeCache.get(key)
+  if (!cached || cached.expiresAt <= Date.now()) {
+    geocodeCache.delete(key)
+    return null
+  }
+  return cached.value
+}
+
+function setCachedGeocodeResult(query: string, value: { latitude: number; longitude: number; displayName: string }) {
+  purgeExpiredGeocodeCache()
+  const key = normalizeGeocodeQuery(query)
+  if (geocodeCache.size >= GEOCODE_CACHE_MAX_ENTRIES) {
+    const oldestKey = geocodeCache.keys().next().value
+    if (oldestKey) geocodeCache.delete(oldestKey)
+  }
+  geocodeCache.set(key, { expiresAt: Date.now() + GEOCODE_CACHE_TTL_MS, value })
+}
+
 async function assertPropertyAccess(user: { id: string; role: string }, propertyId: string, res: Response) {
   const property = await prisma.property.findUnique({
     where: { id: propertyId, deletedAt: null },
@@ -216,25 +257,41 @@ export async function geocodePropertyAddress(req: AuthRequest, res: Response) {
   const state = query.state?.trim() || ''
   const country = query.country?.trim() || 'Nigeria'
   const combined = [address, city, state, country].filter(Boolean).join(', ')
+  const normalizedCombined = combined.replace(/\s+/g, ' ').replace(/\s*,\s*/g, ', ').trim()
 
-  if (!combined || combined.replace(/,/g, '').trim().length < 5) {
+  if (!normalizedCombined || normalizedCombined.replace(/,/g, '').trim().length < 5) {
     return res.status(400).json({ success: false, error: 'A valid address is required to geocode' })
   }
 
-  const url = new URL('https://nominatim.openstreetmap.org/search')
-  url.searchParams.set('q', combined)
+  const cached = getCachedGeocodeResult(normalizedCombined)
+  if (cached) {
+    return res.status(200).json(buildResponse(cached, 'Location found'))
+  }
+
+  const baseUrl = process.env.GEOCODING_BASE_URL ?? 'https://nominatim.openstreetmap.org/search'
+  const userAgent = process.env.GEOCODING_USER_AGENT ?? 'JerryHomes/1.0'
+  const url = new URL(baseUrl)
+  url.searchParams.set('q', `${normalizedCombined}, Nigeria`)
   url.searchParams.set('format', 'jsonv2')
   url.searchParams.set('limit', '1')
   url.searchParams.set('addressdetails', '1')
   url.searchParams.set('countrycodes', 'ng')
 
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 8000)
+
   try {
     const response = await fetch(url.toString(), {
       headers: {
         'Accept-Language': 'en',
-        'User-Agent': 'JerryHomes/1.0',
+        'User-Agent': userAgent,
       },
+      signal: controller.signal,
     })
+
+    if (response.status === 429) {
+      return res.status(429).json({ success: false, error: 'Location service temporarily unavailable. Please try again shortly.' })
+    }
 
     if (!response.ok) {
       return res.status(502).json({ success: false, error: 'Unable to find this address right now.' })
@@ -244,21 +301,24 @@ export async function geocodePropertyAddress(req: AuthRequest, res: Response) {
     const match = data[0]
 
     if (!match?.lat || !match?.lon) {
-      return res.status(404).json({ success: false, error: 'Unable to find this address. Please adjust the location manually.' })
+      return res.status(404).json({ success: false, error: 'Address not found. Please adjust the location manually.' })
     }
 
-    return res.status(200).json(
-      buildResponse(
-        {
-          latitude: Number(match.lat),
-          longitude: Number(match.lon),
-          displayName: match.display_name || combined,
-        },
-        'Location found'
-      )
-    )
-  } catch {
-    return res.status(502).json({ success: false, error: 'Geocoding service unavailable. Please adjust the location manually.' })
+    const coordinates = {
+      latitude: Number(match.lat),
+      longitude: Number(match.lon),
+      displayName: match.display_name || normalizedCombined,
+    }
+
+    setCachedGeocodeResult(normalizedCombined, coordinates)
+    return res.status(200).json(buildResponse(coordinates, 'Location found'))
+  } catch (error) {
+    if ((error as Error)?.name === 'AbortError') {
+      return res.status(504).json({ success: false, error: 'Location service timed out. Please adjust the location manually.' })
+    }
+    return res.status(502).json({ success: false, error: 'Location service temporarily unavailable.' })
+  } finally {
+    clearTimeout(timeout)
   }
 }
 

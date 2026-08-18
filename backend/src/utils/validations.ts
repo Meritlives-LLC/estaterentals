@@ -148,7 +148,7 @@ export const ActivityFilterSchema = z.object({
 export const PropertyLocationSchema = z.object({
   latitude: latitudeSchema,
   longitude: longitudeSchema,
-  address: z.string().min(1).optional(),
+  address: z.string().trim().min(1).optional(),
 })
 
 export const GeocodeQuerySchema = z.object({
