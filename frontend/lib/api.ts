@@ -24,10 +24,14 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const original = error.config
+    // Don't attempt refresh for auth endpoints themselves
+    const url = original?.url || ''
+    if (url.includes('/auth/refresh') || url.includes('/auth/login') || url.includes('/auth/staff/login') || url.includes('/auth/google') || url.includes('/auth/visitor') || url.includes('/auth/login/verify-otp') || url.includes('/auth/login/resend-otp')) {
+      return Promise.reject(error)
+    }
 
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true
-
       try {
         if (!refreshPromise) {
           refreshPromise = axios
@@ -46,6 +50,7 @@ api.interceptors.response.use(
         return api(original)
       } catch (err) {
         // Refresh failed — clear auth state if needed and reject
+        // Optionally: dispatch logout action here
         return Promise.reject(err)
       }
     }

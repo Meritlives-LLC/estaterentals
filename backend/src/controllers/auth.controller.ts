@@ -25,6 +25,7 @@ import {
 } from '../lib/otp'
 import { sendAdminLoginOtp } from '../lib/email'
 import { TokenPayload } from '../utils/jwt'
+import { setAuthCookies, setAccessCookie, clearAuthCookies } from '../utils/cookies'
 
 async function findUserByIdentifier(identifier: string) {
   const normalized = identifier.trim().toLowerCase()
@@ -222,45 +223,8 @@ export async function verifyAdminOtp(req: Request, res: Response) {
   await logActivity({ userId: user.id, action: 'OTP_VERIFIED', description: 'Admin verification code accepted', ...meta })
   await logActivity({ userId: user.id, action: 'LOGIN_SUCCESS', description: `${user.role} logged in after OTP verification`, ...meta })
 
-  // Set secure HttpOnly cookies
-  const isProd = process.env.NODE_ENV === 'production'
-  const parseExpiryToMs = (v: string | undefined) => {
-    if (!v) return undefined
-    const m = v.match(/^(\d+)([smhd])$/)
-    if (!m) return undefined
-    const n = Number(m[1])
-    const unit = m[2]
-    switch (unit) {
-      case 's':
-        return n * 1000
-      case 'm':
-        return n * 60 * 1000
-      case 'h':
-        return n * 60 * 60 * 1000
-      case 'd':
-        return n * 24 * 60 * 60 * 1000
-      default:
-        return undefined
-    }
-  }
-
-  const accessMs = parseExpiryToMs(process.env.JWT_EXPIRES_IN as string | undefined) ?? 0
-  const refreshMs = parseExpiryToMs(process.env.JWT_REFRESH_EXPIRES_IN as string | undefined) ?? 0
-
-  res.cookie('access_token', accessToken, {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: 'lax',
-    path: '/api',
-    maxAge: accessMs,
-  })
-  res.cookie('refresh_token', refreshToken, {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: 'lax',
-    path: '/api/auth',
-    maxAge: refreshMs,
-  })
+  // Set secure HttpOnly cookies (centralized helper)
+  setAuthCookies(res, accessToken, refreshToken)
 
   return res.status(200).json(
     buildResponse(
@@ -365,33 +329,8 @@ export async function staffLogin(req: Request, res: Response) {
   const accessToken = generateAccessToken(payload)
   const refreshToken = generateRefreshToken(payload)
 
-  // Set cookies for staff login
-  const isProd = process.env.NODE_ENV === 'production'
-  const parseExpiryToMs = (v: string | undefined) => {
-    if (!v) return undefined
-    const m = v.match(/^(\d+)([smhd])$/)
-    if (!m) return undefined
-    const n = Number(m[1])
-    const unit = m[2]
-    switch (unit) {
-      case 's':
-        return n * 1000
-      case 'm':
-        return n * 60 * 1000
-      case 'h':
-        return n * 60 * 60 * 1000
-      case 'd':
-        return n * 24 * 60 * 60 * 1000
-      default:
-        return undefined
-    }
-  }
-
-  const accessMs = parseExpiryToMs(process.env.JWT_EXPIRES_IN as string | undefined) ?? 0
-  const refreshMs = parseExpiryToMs(process.env.JWT_REFRESH_EXPIRES_IN as string | undefined) ?? 0
-
-  res.cookie('access_token', accessToken, { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api', maxAge: accessMs })
-  res.cookie('refresh_token', refreshToken, { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api/auth', maxAge: refreshMs })
+  // Set auth cookies (centralized)
+  setAuthCookies(res, accessToken, refreshToken)
 
   await logActivity({
     userId: user.id,
@@ -507,33 +446,8 @@ export async function googleAuth(req: Request, res: Response) {
       description: 'Visitor Google login',
       ...meta,
     })
-    // Set cookies
-    const isProd = process.env.NODE_ENV === 'production'
-    const parseExpiryToMs = (v: string | undefined) => {
-      if (!v) return undefined
-      const m = v.match(/^(\d+)([smhd])$/)
-      if (!m) return undefined
-      const n = Number(m[1])
-      const unit = m[2]
-      switch (unit) {
-        case 's':
-          return n * 1000
-        case 'm':
-          return n * 60 * 1000
-        case 'h':
-          return n * 60 * 60 * 1000
-        case 'd':
-          return n * 24 * 60 * 60 * 1000
-        default:
-          return undefined
-      }
-    }
-
-    const accessMs = parseExpiryToMs(process.env.JWT_EXPIRES_IN as string | undefined) ?? 0
-    const refreshMs = parseExpiryToMs(process.env.JWT_REFRESH_EXPIRES_IN as string | undefined) ?? 0
-
-    res.cookie('access_token', accessToken, { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api', maxAge: accessMs })
-    res.cookie('refresh_token', refreshToken, { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api/auth', maxAge: refreshMs })
+    // Set auth cookies (centralized)
+    setAuthCookies(res, accessToken, refreshToken)
 
     return res.status(200).json(buildResponse({ user: { id: user.id, name: user.name, email: user.email, role: user.role, image: user.image } }, 'Google sign-in successful'))
   } catch (err) {
@@ -594,33 +508,8 @@ export async function visitorRegister(req: Request, res: Response) {
     ...meta,
   })
 
-  // Set cookies for visitor registration
-  const isProd = process.env.NODE_ENV === 'production'
-  const parseExpiryToMs = (v: string | undefined) => {
-    if (!v) return undefined
-    const m = v.match(/^(\d+)([smhd])$/)
-    if (!m) return undefined
-    const n = Number(m[1])
-    const unit = m[2]
-    switch (unit) {
-      case 's':
-        return n * 1000
-      case 'm':
-        return n * 60 * 1000
-      case 'h':
-        return n * 60 * 60 * 1000
-      case 'd':
-        return n * 24 * 60 * 60 * 1000
-      default:
-        return undefined
-    }
-  }
-
-  const accessMs = parseExpiryToMs(process.env.JWT_EXPIRES_IN as string | undefined) ?? 0
-  const refreshMs = parseExpiryToMs(process.env.JWT_REFRESH_EXPIRES_IN as string | undefined) ?? 0
-
-  res.cookie('access_token', accessToken, { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api', maxAge: accessMs })
-  res.cookie('refresh_token', refreshToken, { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api/auth', maxAge: refreshMs })
+  // Set auth cookies (centralized)
+  setAuthCookies(res, accessToken, refreshToken)
 
   return res.status(201).json(buildResponse({ user: { id: user.id, name: user.name, email: user.email, role: user.role } }, 'Account created successfully'))
 }
@@ -681,33 +570,8 @@ export async function visitorLogin(req: Request, res: Response) {
     ...meta,
   })
 
-  // Set cookies for visitor login
-  const isProd = process.env.NODE_ENV === 'production'
-  const parseExpiryToMs = (v: string | undefined) => {
-    if (!v) return undefined
-    const m = v.match(/^(\d+)([smhd])$/)
-    if (!m) return undefined
-    const n = Number(m[1])
-    const unit = m[2]
-    switch (unit) {
-      case 's':
-        return n * 1000
-      case 'm':
-        return n * 60 * 1000
-      case 'h':
-        return n * 60 * 60 * 1000
-      case 'd':
-        return n * 24 * 60 * 60 * 1000
-      default:
-        return undefined
-    }
-  }
-
-  const accessMs = parseExpiryToMs(process.env.JWT_EXPIRES_IN as string | undefined) ?? 0
-  const refreshMs = parseExpiryToMs(process.env.JWT_REFRESH_EXPIRES_IN as string | undefined) ?? 0
-
-  res.cookie('access_token', accessToken, { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api', maxAge: accessMs })
-  res.cookie('refresh_token', refreshToken, { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api/auth', maxAge: refreshMs })
+  // Set auth cookies (centralized)
+  setAuthCookies(res, accessToken, refreshToken)
 
   return res.status(200).json(buildResponse({ user: { id: user.id, name: user.name, email: user.email, role: user.role } }, 'Login successful'))
 }
@@ -715,9 +579,12 @@ export async function visitorLogin(req: Request, res: Response) {
 // ─── Refresh Token ────────────────────────────────────
 export async function refresh(req: Request, res: Response) {
   // Refresh token is expected in a secure HttpOnly cookie
+  // Log incoming request metadata to help debug proxy issues in production
+  console.log('[Auth][Refresh] incoming', { origin: req.headers.origin, host: req.headers.host, cookiesPresent: !!req.headers.cookie })
   const refreshToken = req.cookies?.refresh_token
 
   if (!refreshToken) {
+    console.warn('[Auth][Refresh] missing refresh_token cookie')
     return res.status(400).json({ success: false, error: 'Refresh token required' })
   }
 
@@ -741,42 +608,19 @@ export async function refresh(req: Request, res: Response) {
     }
     const accessToken = generateAccessToken(newPayload)
 
-    const isProd = process.env.NODE_ENV === 'production'
-    const parseExpiryToMs = (v: string | undefined) => {
-      if (!v) return undefined
-      const m = v.match(/^(\d+)([smhd])$/)
-      if (!m) return undefined
-      const n = Number(m[1])
-      const unit = m[2]
-      switch (unit) {
-        case 's':
-          return n * 1000
-        case 'm':
-          return n * 60 * 1000
-        case 'h':
-          return n * 60 * 60 * 1000
-        case 'd':
-          return n * 24 * 60 * 60 * 1000
-        default:
-          return undefined
-      }
-    }
-
-    const accessMs = parseExpiryToMs(process.env.JWT_EXPIRES_IN as string | undefined) ?? 0
-
-    res.cookie('access_token', accessToken, { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api', maxAge: accessMs })
+    // Set new access cookie (centralized)
+    setAccessCookie(res, accessToken)
 
     return res.status(200).json(buildResponse({}, 'Token refreshed'))
-  } catch {
+  } catch (err) {
+    console.error('[Auth][Refresh] error verifying refresh token:', err)
     return res.status(401).json({ success: false, error: 'Invalid refresh token' })
   }
 }
 
 export async function logout(req: Request, res: Response) {
-  const isProd = process.env.NODE_ENV === 'production'
-  // Clear cookies using same attributes
-  res.clearCookie('access_token', { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api' })
-  res.clearCookie('refresh_token', { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api/auth' })
+  // Clear auth cookies (centralized)
+  clearAuthCookies(res)
   return res.status(200).json(buildResponse(null, 'Logged out'))
 }
 
