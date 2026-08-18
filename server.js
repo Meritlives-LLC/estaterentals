@@ -1,85 +1,226 @@
 /**
- * Combined production server: Next.js (frontend) + Express (API)
+ * Combined production server:
  *
- * - /api/*  → existing Express app (auth, properties, etc.)
- * - everything else → Next.js
+ * Next.js frontend + Express API
  *
- * Used on Render as a single Web Service.
- * Local dual-server development (frontend + backend separately) is unchanged.
+ * /api/*       -> Express
+ * everything   -> Next.js
+ *
+ * Render runs this as ONE Web Service and ONE HTTP listener.
  */
 
 'use strict'
 
 const path = require('path')
-const { createServer } = require('http')
+const http = require('http')
 const { parse } = require('url')
 const next = require('next')
 
+// ------------------------------------------------------
+// Production configuration
+// ------------------------------------------------------
+
+// Prevent backend/src/index.ts from calling app.listen()
+// when it is imported below.
+process.env.STANDALONE_BACKEND = '0'
+
+// Render sets NODE_ENV/PORT in production.
+// Keep a fallback for local execution.
+if (!process.env.NODE_ENV) {
+  process.env.NODE_ENV = 'production'
+}
+
 const dev = process.env.NODE_ENV !== 'production'
-const hostname = process.env.HOSTNAME || '0.0.0.0'
+
+const hostname = '0.0.0.0'
 const port = Number(process.env.PORT) || 3000
 
-// Frontend lives in ./frontend
+// ------------------------------------------------------
+// Next.js
+// ------------------------------------------------------
+
 const nextApp = next({
   dev,
   hostname,
   port,
   dir: path.join(__dirname, 'frontend'),
 })
+
 const handle = nextApp.getRequestHandler()
 
+// ------------------------------------------------------
+// Start
+// ------------------------------------------------------
+
 async function main() {
-  // Ensure Express does not call app.listen() when required
-  process.env.STANDALONE_BACKEND = process.env.STANDALONE_BACKEND || '0'
-
-  // Load compiled Express app (run `npm run build:backend` first)
-  let expressApp
-  try {
-    // eslint-disable-next-line import/no-dynamic-require, global-require
-    expressApp = require(path.join(__dirname, 'backend', 'dist', 'index.js')).default
-  } catch (err) {
-    console.error(
-      'Failed to load backend/dist/index.js. Run backend build first (tsc / npm run build:backend).',
-      err
+  // Load the compiled Express app.
+  //
+  // backend/src/index.ts exports the app but does NOT
+  // call app.listen() because STANDALONE_BACKEND=0.
+  const backendModule = require(
+    path.join(
+      __dirname,
+      'backend',
+      'dist',
+      'index.js'
     )
-    process.exit(1)
+  )
+
+  const expressApp =
+    backendModule.default || backendModule
+
+  if (
+    typeof expressApp !== 'function'
+  ) {
+    throw new Error(
+      'Failed to load the Express application from backend/dist/index.js'
+    )
   }
 
-  if (!expressApp || typeof expressApp !== 'function') {
-    console.error('Express app export is missing or invalid')
-    process.exit(1)
-  }
-
+  // Prepare Next.js before accepting requests.
   await nextApp.prepare()
 
-  const server = createServer(async (req, res) => {
-    try {
-      const parsedUrl = parse(req.url || '/', true)
-      const pathname = parsedUrl.pathname || '/'
+  // ----------------------------------------------------
+  // ONE HTTP SERVER
+  // ----------------------------------------------------
 
-      // Route API (and legacy /health) to Express
-      if (pathname === '/health' || pathname === '/api/health' || pathname.startsWith('/api/')) {
-        return expressApp(req, res)
+  const server = http.createServer(
+    async (req, res) => {
+      try {
+        const parsedUrl = parse(
+          req.url || '/',
+          true
+        )
+
+        const pathname =
+          parsedUrl.pathname || '/'
+
+        // ------------------------------------------------
+        // Express API
+        //
+        // The Express app ALREADY defines:
+        //
+        // /api/auth
+        // /api/properties
+        // /api/messages
+        // etc.
+        //
+        // Therefore DO NOT mount it using:
+        //
+        // app.use('/api', expressApp)
+        //
+        // That would create /api/api/*.
+        // ------------------------------------------------
+
+        if (
+          pathname === '/health' ||
+          pathname === '/api/health' ||
+          pathname.startsWith('/api/')
+        ) {
+          return expressApp(req, res)
+        }
+
+        // ------------------------------------------------
+        // Next.js frontend
+        // ------------------------------------------------
+
+        return handle(
+          req,
+          res,
+          parsedUrl
+        )
+      } catch (error) {
+        console.error(
+          'Request handling error:',
+          error
+        )
+
+        if (!res.headersSent) {
+          res.statusCode = 500
+          res.setHeader(
+            'Content-Type',
+            'application/json'
+          )
+
+          res.end(
+            JSON.stringify({
+              success: false,
+              error: 'Internal Server Error',
+            })
+          )
+        }
       }
-
-      // All other routes → Next.js
-      await handle(req, res, parsedUrl)
-    } catch (err) {
-      console.error('Request error:', err)
-      res.statusCode = 500
-      res.end('Internal Server Error')
     }
-  })
+  )
 
-  server.listen(port, hostname, () => {
-    console.log(`\n🚀 Combined server ready`)
-    console.log(`   → http://${hostname}:${port}`)
-    console.log(`   → API:  http://${hostname}:${port}/api/*`)
-    console.log(`   → Env:  ${process.env.NODE_ENV || 'development'}\n`)
-  })
+  // ----------------------------------------------------
+  // Server errors
+  // ----------------------------------------------------
+
+  server.on(
+    'error',
+    (error) => {
+      console.error(
+        'HTTP server error:',
+        error
+      )
+
+      process.exit(1)
+    }
+  )
+
+  // ----------------------------------------------------
+  // Render listener
+  // ----------------------------------------------------
+
+  server.listen(
+    port,
+    hostname,
+    () => {
+      console.log(
+        '\n🚀 EstateRentals combined server started'
+      )
+
+      console.log(
+        `🌐 Host: ${hostname}`
+      )
+
+      console.log(
+        `🔌 Port: ${port}`
+      )
+
+      console.log(
+        `📖 Environment: ${process.env.NODE_ENV}`
+      )
+
+      console.log(
+        '🖥️  Frontend: Next.js'
+      )
+
+      console.log(
+        '🔌 API: Express /api/*'
+      )
+
+      console.log(
+        '❤️  Health: /health'
+      )
+
+      console.log(
+        '❤️  API Health: /api/health\n'
+      )
+    }
+  )
 }
 
-main().catch((err) => {
-  console.error('Failed to start combined server:', err)
+// ------------------------------------------------------
+// Startup failure
+// ------------------------------------------------------
+
+main().catch((error) => {
+  console.error(
+    '❌ Failed to start combined server:',
+    error
+  )
+
   process.exit(1)
 })
