@@ -1,6 +1,5 @@
 // frontend/lib/api.ts
 import axios from 'axios'
-import Cookies from 'js-cookie'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000/api'
 
@@ -10,12 +9,7 @@ export const api = axios.create({
   withCredentials: true,
 })
 
-// Attach access token to every request
-api.interceptors.request.use((config) => {
-  const token = Cookies.get('accessToken')
-  if (token) config.headers.Authorization = `Bearer ${token}`
-  return config
-})
+// No client-side token attachment — server sets HttpOnly cookies
 
 // Auto-refresh on 401
 api.interceptors.response.use(
@@ -25,23 +19,14 @@ api.interceptors.response.use(
 
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true
-      const refreshToken = Cookies.get('refreshToken')
 
-      if (refreshToken) {
-        try {
-          const res = await axios.post(`${API_URL}/auth/refresh`, { refreshToken })
-          const { accessToken } = res.data.data
-          Cookies.set('accessToken', accessToken, { expires: 7, sameSite: 'strict' })
-          original.headers.Authorization = `Bearer ${accessToken}`
-          return api(original)
-        } catch {
-          // Refresh failed — clear tokens and let the page handle it
-          Cookies.remove('accessToken')
-          Cookies.remove('refreshToken')
-        }
-      } else {
-        // No refresh token — clear access token and let the page handle it
-        Cookies.remove('accessToken')
+      try {
+        // Ask server to refresh using HttpOnly cookie
+        await axios.post(`${API_URL}/auth/refresh`, {}, { withCredentials: true })
+        // Retry original request — cookies will be sent automatically
+        return api(original)
+      } catch {
+        // Refresh failed — let the page handle sign-out
       }
     }
 
@@ -53,12 +38,11 @@ api.interceptors.response.use(
 export const authApi: any = {
   login: (email: string, password: string) =>
     api.post('/auth/login', { email, password }),
-  verifyAdminOtp: (email: string, otp: string) =>
-    api.post('/auth/login/verify-otp', { email, otp }),
-  resendAdminOtp: (email: string) => api.post('/auth/login/resend-otp', { email }),
+  verifyAdminOtp: (challengeId: string, otp: string) =>
+    api.post('/auth/login/verify-otp', { challengeId, otp }),
+  resendAdminOtp: (challengeId: string) => api.post('/auth/login/resend-otp', { challengeId }),
   me: () => api.get('/auth/me'),
-  refresh: (refreshToken: string) =>
-    api.post('/auth/refresh', { refreshToken }),
+  refresh: () => api.post('/auth/refresh'),
   googleAuth: (idToken: string) =>
     api.post('/auth/google', { idToken }),
   visitorLogin: (email: string, password: string) =>

@@ -5,6 +5,7 @@ import {
   verifyAdminOtp,
   resendAdminOtp,
   refresh,
+  logout,
   me,
   googleAuth,
   visitorRegister,
@@ -22,6 +23,7 @@ router.post('/login/verify-otp', verifyAdminOtp)
 router.post('/login/resend-otp', resendAdminOtp)
 router.post('/staff/login', staffLogin)
 router.post('/refresh', refresh)
+router.post('/logout', logout)
 router.get('/me', authenticate, me)
 router.post('/change-password', authenticate, changePassword)
 

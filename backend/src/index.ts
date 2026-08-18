@@ -21,14 +21,55 @@ import { errorHandler, notFound } from './middleware/error.middleware'
 const app = express()
 const PORT = process.env.PORT ?? 5000
 
-// ─── Security ────────────────────────────────────────
-app.use(helmet())
-
-// ─── CORS ─────────────────────────────────────────────
+// Allowed origins used for CORS and included in CSP connectSrc
 const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? 'http://localhost:3000')
   .split(',')
   .map((o) => o.trim())
 
+// ─── Security ────────────────────────────────────────
+// Trust proxy when explicitly configured (Render / hosting proxies)
+if (process.env.TRUST_PROXY === '1' || process.env.TRUST_PROXY === 'true') {
+  app.set('trust proxy', 1)
+}
+
+// Configure Helmet with a production-aware CSP and HSTS
+const isProd = process.env.NODE_ENV === 'production'
+app.use(
+  helmet({
+    contentSecurityPolicy: isProd
+      ? {
+          useDefaults: true,
+          directives: {
+            defaultSrc: ["'self'"],
+            // Allow known script hosts (Google OAuth, CDN providers used for widgets)
+            scriptSrc: ["'self'", 'https://accounts.google.com', 'https://apis.google.com', 'https://www.gstatic.com', 'https://unpkg.com', 'https://cdn.jsdelivr.net'],
+            // Inline styles are required for some third-party widgets and Leaflet styling
+            styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+            // Images from cloud providers, Google avatars, and OpenStreetMap tiles
+            imgSrc: ["'self'", 'data:', 'blob:', 'https://res.cloudinary.com', 'https://images.unsplash.com', 'https://lh3.googleusercontent.com', 'https://*.tile.openstreetmap.org', 'https://unpkg.com', 'https://iframe.mediadelivery.net', 'https://video.bunnycdn.com', 'https://*.b-cdn.net'],
+            // Connections allowed for Bunny, Cloudinary, Nominatim and OAuth endpoints
+            connectSrc: ["'self'", 'https://video.bunnycdn.com', 'https://*.bunnycdn.com', 'https://api.cloudinary.com', 'https://nominatim.openstreetmap.org', 'https://accounts.google.com', 'https://oauth2.googleapis.com', ...allowedOrigins],
+            fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
+            frameSrc: ['https://iframe.mediadelivery.net'],
+            mediaSrc: ['https://iframe.mediadelivery.net', 'https://video.bunnycdn.com', 'https://*.bunnycdn.com'],
+            objectSrc: ["'none'"],
+            baseUri: ["'self'"],
+            formAction: ["'self'"],
+            frameAncestors: ["'none'"],
+          },
+        }
+      : false,
+    hsts: isProd
+      ? {
+          maxAge: 60 * 60 * 24 * 90, // 90 days
+          includeSubDomains: false,
+          preload: false,
+        }
+      : false,
+  })
+)
+
+// ─── CORS ─────────────────────────────────────────────
 app.use(
   cors({
     origin: (origin, callback) => {

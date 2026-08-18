@@ -1,5 +1,4 @@
 // frontend/lib/auth.ts
-import Cookies from 'js-cookie'
 import { authApi } from './api'
 
 export interface AuthUser {
@@ -27,77 +26,72 @@ const VISITOR_REFRESH_OPTS: Cookies.CookieAttributes = { ...COOKIE_OPTIONS, expi
 const ADMIN_ACCESS_OPTS: Cookies.CookieAttributes  = { ...COOKIE_OPTIONS, expires: 1 / 24 }
 const ADMIN_REFRESH_OPTS: Cookies.CookieAttributes = { ...COOKIE_OPTIONS, expires: 8 / 24 }
 
-export function setTokens(accessToken: string, refreshToken: string, isAdmin = false) {
-  const accessOpts  = isAdmin ? ADMIN_ACCESS_OPTS  : VISITOR_ACCESS_OPTS
-  const refreshOpts = isAdmin ? ADMIN_REFRESH_OPTS : VISITOR_REFRESH_OPTS
-  Cookies.set('accessToken', accessToken, accessOpts)
-  Cookies.set('refreshToken', refreshToken, refreshOpts)
-}
-
-export function clearTokens() {
-  Cookies.remove('accessToken')
-  Cookies.remove('refreshToken')
-}
+// Token storage is handled via secure HttpOnly cookies set by the server.
+// Client-side JS must not read or write auth tokens.
 
 // ─── Admin Login ───────────────────────────────────────
-export async function login(email: string, password: string): Promise<{ requiresOtp: true; email: string; message: string }> {
+export async function login(email: string, password: string): Promise<{ requiresOtp: true; challengeId: string; email: string; message: string }> {
   const res = await authApi.login(email, password)
   return res.data.data
 }
 
-export async function verifyAdminOtp(email: string, otp: string): Promise<AuthUser> {
-  const res = await authApi.verifyAdminOtp(email, otp)
-  const { accessToken, refreshToken, user } = res.data.data
-  setTokens(accessToken, refreshToken, true)
+export async function verifyAdminOtp(challengeId: string, otp: string): Promise<AuthUser> {
+  const res = await authApi.verifyAdminOtp(challengeId, otp)
+  const { user } = res.data.data
   return user
 }
 
-export async function resendAdminOtp(email: string): Promise<{ requiresOtp: true }> {
-  const res = await authApi.resendAdminOtp(email)
+export async function resendAdminOtp(challengeId: string): Promise<{ requiresOtp: true; challengeId: string }> {
+  const res = await authApi.resendAdminOtp(challengeId)
   return res.data.data
 }
 
 // ─── Visitor Login ─────────────────────────────────────
 export async function visitorLogin(email: string, password: string): Promise<AuthUser> {
   const res = await authApi.visitorLogin(email, password)
-  const { accessToken, refreshToken, user } = res.data.data
-  setTokens(accessToken, refreshToken)
+  const { user } = res.data.data
   return user
 }
 
 // ─── Visitor Register ──────────────────────────────────
 export async function visitorRegister(name: string, email: string, password: string): Promise<AuthUser> {
   const res = await authApi.visitorRegister(name, email, password)
-  const { accessToken, refreshToken, user } = res.data.data
-  setTokens(accessToken, refreshToken)
+  const { user } = res.data.data
   return user
 }
 
 // ─── Google Sign-In ────────────────────────────────────
 export async function googleSignIn(idToken: string): Promise<AuthUser> {
   const res = await authApi.googleAuth(idToken)
-  const { accessToken, refreshToken, user } = res.data.data
-  setTokens(accessToken, refreshToken)
+  const { user } = res.data.data
   return user
 }
 
 // ─── Logout ────────────────────────────────────────────
-export function logout() {
-  clearTokens()
+export async function logout() {
+  try {
+    await authApi.refresh() // ensure tokens valid or clearing will still work
+  } catch {}
+  await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000'}/api/auth/logout`, { method: 'POST', credentials: 'include' })
   window.location.href = '/'
 }
 
-export function adminLogout() {
-  clearTokens()
+export async function adminLogout() {
+  try {
+    await authApi.refresh()
+  } catch {}
+  await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000'}/api/auth/logout`, { method: 'POST', credentials: 'include' })
   window.location.href = '/admin/login'
 }
 
 export function getAccessToken(): string | undefined {
-  return Cookies.get('accessToken')
+  // Access token is not exposed to JS when using HttpOnly cookies
+  return undefined
 }
 
 export function isLoggedIn(): boolean {
-  return !!Cookies.get('accessToken')
+  // Prefer calling `getCurrentUser` / `me` to determine auth state
+  return false
 }
 
 export async function getCurrentUser(): Promise<AuthUser | null> {

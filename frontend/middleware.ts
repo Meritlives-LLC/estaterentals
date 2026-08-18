@@ -21,8 +21,8 @@ export function middleware(req: NextRequest) {
     return NextResponse.next()
   }
 
-  // Check for access token in cookies
-  const token = req.cookies.get('accessToken')?.value
+  // Check for access token in cookies (server-side cookie name set by API)
+  const token = req.cookies.get('access_token')?.value
 
   if (!token) {
     // Not logged in — redirect to admin login

@@ -16,7 +16,7 @@ export default function AdminLoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [otpEmail, setOtpEmail] = useState<string | null>(null)
+  const [challengeId, setChallengeId] = useState<string | null>(null)
   const [otp, setOtp] = useState<string[]>(Array(6).fill(''))
   const [countdown, setCountdown] = useState(60)
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false)
@@ -27,7 +27,7 @@ export default function AdminLoginPage() {
   })
 
   useEffect(() => {
-    if (!otpEmail) return
+    if (!challengeId) return
 
     const timer = window.setInterval(() => {
       setCountdown((current) => {
@@ -40,7 +40,7 @@ export default function AdminLoginPage() {
     }, 1000)
 
     return () => window.clearInterval(timer)
-  }, [otpEmail])
+  }, [challengeId])
 
   const otpValue = useMemo(() => otp.join(''), [otp])
 
@@ -63,7 +63,7 @@ export default function AdminLoginPage() {
     try {
       const response = await login(data.email, data.password)
       if (response.requiresOtp) {
-        setOtpEmail(response.email)
+        setChallengeId(response.challengeId)
         setOtp(Array(6).fill(''))
         setCountdown(60)
         setSuccess('Verification code sent to your email.')
@@ -77,7 +77,7 @@ export default function AdminLoginPage() {
   }
 
   const handleVerifyOtp = async () => {
-    if (!otpEmail) return
+    if (!challengeId) return
     if (otpValue.length !== 6) {
       setError('Enter the full 6-digit verification code.')
       return
@@ -87,7 +87,7 @@ export default function AdminLoginPage() {
     setIsVerifyingOtp(true)
 
     try {
-      const user = await verifyAdminOtp(otpEmail, otpValue)
+      const user = await verifyAdminOtp(challengeId as string, otpValue)
       await refetch()
       if (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN') {
         router.push('/admin/dashboard')
@@ -103,13 +103,14 @@ export default function AdminLoginPage() {
   }
 
   const handleResendOtp = async () => {
-    if (!otpEmail || countdown > 0) return
+    if (!challengeId || countdown > 0) return
 
     setError('')
     setIsResending(true)
 
     try {
-      await resendAdminOtp(otpEmail)
+      const res = await resendAdminOtp(challengeId)
+      if (res?.challengeId) setChallengeId(res.challengeId)
       setOtp(Array(6).fill(''))
       setCountdown(60)
       setSuccess('A new verification code has been sent.')
@@ -121,7 +122,7 @@ export default function AdminLoginPage() {
   }
 
   const handleBackToPassword = () => {
-    setOtpEmail(null)
+    setChallengeId(null)
     setOtp(Array(6).fill(''))
     setCountdown(60)
     setError('')
@@ -182,7 +183,7 @@ export default function AdminLoginPage() {
             </div>
           )}
 
-          {!otpEmail ? (
+          {!challengeId ? (
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">Email Address</label>

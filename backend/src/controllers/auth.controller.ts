@@ -24,6 +24,7 @@ import {
   isOtpExpired,
 } from '../lib/otp'
 import { sendAdminLoginOtp } from '../lib/email'
+import { TokenPayload } from '../utils/jwt'
 
 async function findUserByIdentifier(identifier: string) {
   const normalized = identifier.trim().toLowerCase()
@@ -85,7 +86,7 @@ async function issueAdminOtp(userId: string) {
     throw new Error('Unable to send admin verification code')
   }
 
-  return user
+  return { user, otpId: otpRecord.id }
 }
 
 // ─── Admin / Staff Login (email or username + password) ──────────────────
@@ -130,24 +131,14 @@ export async function login(req: Request, res: Response) {
   }
 
   try {
-    await issueAdminOtp(user.id)
+    const { otpId } = await issueAdminOtp(user.id)
     await logActivity({
       userId: user.id,
       action: 'OTP_SENT',
       description: 'Admin verification code sent',
       ...meta,
     })
-
-    return res.status(200).json(
-      buildResponse(
-        {
-          requiresOtp: true,
-          email: user.email,
-          message: 'Verification code sent to your email.',
-        },
-        'Verification code sent'
-      )
-    )
+    return res.status(200).json(buildResponse({ requiresOtp: true, challengeId: otpId }, 'Verification code sent'))
   } catch (error) {
     console.error('[Auth] Admin OTP issuance failed:', error)
     return res.status(503).json({
@@ -160,18 +151,18 @@ export async function login(req: Request, res: Response) {
 export async function verifyAdminOtp(req: Request, res: Response) {
   const data = AdminOtpVerifySchema.parse(req.body)
   const meta = getRequestMeta(req)
-  const email = data.email.trim().toLowerCase()
 
-  const user = await prisma.user.findUnique({
-    where: { email },
-  })
+  // Resolve OTP record by server-issued challenge id (emailOtp.id)
+  const otpRecord = await prisma.emailOtp.findUnique({ where: { id: data.challengeId } })
 
+  if (!otpRecord || otpRecord.purpose !== OTP_PURPOSE_ADMIN_LOGIN) {
+    await logActivity({ action: 'OTP_FAILED', description: 'Invalid admin OTP challenge', ...meta })
+    return res.status(401).json({ success: false, error: 'Invalid or expired verification code.' })
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: otpRecord.userId } })
   if (!user || !user.password || (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN')) {
-    await logActivity({
-      action: 'OTP_FAILED',
-      description: `Failed OTP verification for ${email}`,
-      ...meta,
-    })
+    await logActivity({ action: 'OTP_FAILED', description: 'OTP challenge does not map to an admin', ...meta })
     return res.status(401).json({ success: false, error: 'Invalid or expired verification code.' })
   }
 
@@ -179,101 +170,101 @@ export async function verifyAdminOtp(req: Request, res: Response) {
     return res.status(403).json({ success: false, error: 'Account is disabled. Contact an administrator.' })
   }
 
-  const latestOtp = await prisma.emailOtp.findFirst({
-    where: {
-      userId: user.id,
-      purpose: OTP_PURPOSE_ADMIN_LOGIN,
-    },
-    orderBy: { createdAt: 'desc' },
-  })
-
-  if (!latestOtp) {
-    await logActivity({ userId: user.id, action: 'OTP_FAILED', description: 'No OTP record found', ...meta })
-    return res.status(401).json({ success: false, error: 'Invalid or expired verification code.' })
-  }
-
-  if (latestOtp.usedAt || latestOtp.revokedAt) {
+  if (otpRecord.usedAt || otpRecord.revokedAt) {
     await logActivity({ userId: user.id, action: 'OTP_FAILED', description: 'OTP already used or invalidated', ...meta })
     return res.status(401).json({ success: false, error: 'Verification code has already been used or invalidated.' })
   }
 
-  if (isOtpExpired(latestOtp.expiresAt)) {
-    await prisma.emailOtp.update({
-      where: { id: latestOtp.id },
-      data: { revokedAt: new Date() },
-    })
+  if (isOtpExpired(otpRecord.expiresAt)) {
+    await prisma.emailOtp.update({ where: { id: otpRecord.id }, data: { revokedAt: new Date() } })
     await logActivity({ userId: user.id, action: 'OTP_FAILED', description: 'Expired admin OTP used', ...meta })
     return res.status(410).json({ success: false, error: 'Verification code expired. Request a new one.' })
   }
 
-  if (latestOtp.attempts >= latestOtp.maxAttempts) {
-    await prisma.emailOtp.update({
-      where: { id: latestOtp.id },
-      data: { revokedAt: new Date() },
-    })
+  if (otpRecord.attempts >= otpRecord.maxAttempts) {
+    await prisma.emailOtp.update({ where: { id: otpRecord.id }, data: { revokedAt: new Date() } })
     return res.status(429).json({ success: false, error: 'Too many attempts. Request a new verification code.' })
   }
 
-  const isValidOtp = await verifyOtpHash(data.otp, latestOtp.codeHash)
-
+  const isValidOtp = await verifyOtpHash(data.otp, otpRecord.codeHash)
   if (!isValidOtp) {
-    const nextAttempts = latestOtp.attempts + 1
+    const nextAttempts = otpRecord.attempts + 1
     await prisma.emailOtp.update({
-      where: { id: latestOtp.id },
-      data: { attempts: nextAttempts, revokedAt: nextAttempts >= latestOtp.maxAttempts ? new Date() : null },
+      where: { id: otpRecord.id },
+      data: { attempts: nextAttempts, revokedAt: nextAttempts >= otpRecord.maxAttempts ? new Date() : null },
     })
 
-    await logActivity({
-      userId: user.id,
-      action: 'OTP_FAILED',
-      description: `Invalid admin OTP attempt ${nextAttempts}/${latestOtp.maxAttempts}`,
-      ...meta,
-    })
+    await logActivity({ userId: user.id, action: 'OTP_FAILED', description: `Invalid admin OTP attempt ${nextAttempts}/${otpRecord.maxAttempts}`, ...meta })
 
-    if (nextAttempts >= latestOtp.maxAttempts) {
+    if (nextAttempts >= otpRecord.maxAttempts) {
       return res.status(429).json({ success: false, error: 'Too many invalid attempts. Request a new verification code.' })
     }
 
     return res.status(401).json({ success: false, error: 'Invalid verification code.' })
   }
 
-  const payload = {
+  // Tokens
+  const payload: TokenPayload = {
     id: user.id,
     email: user.email,
     username: user.username,
     role: user.role,
   }
-
   const accessToken = generateAccessToken(payload)
   const refreshToken = generateRefreshToken(payload)
 
+  // Persist login and consume OTP
   await prisma.$transaction([
     prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }),
-    prisma.emailOtp.update({
-      where: { id: latestOtp.id },
-      data: { usedAt: new Date(), revokedAt: new Date() },
-    }),
+    prisma.emailOtp.update({ where: { id: otpRecord.id }, data: { usedAt: new Date(), revokedAt: new Date() } }),
   ])
 
-  await logActivity({
-    userId: user.id,
-    action: 'OTP_VERIFIED',
-    description: 'Admin verification code accepted',
-    ...meta,
-  })
+  await logActivity({ userId: user.id, action: 'OTP_VERIFIED', description: 'Admin verification code accepted', ...meta })
+  await logActivity({ userId: user.id, action: 'LOGIN_SUCCESS', description: `${user.role} logged in after OTP verification`, ...meta })
 
-  await logActivity({
-    userId: user.id,
-    action: 'LOGIN_SUCCESS',
-    description: `${user.role} logged in after OTP verification`,
-    ...meta,
+  // Set secure HttpOnly cookies
+  const isProd = process.env.NODE_ENV === 'production'
+  const parseExpiryToMs = (v: string | undefined) => {
+    if (!v) return undefined
+    const m = v.match(/^(\d+)([smhd])$/)
+    if (!m) return undefined
+    const n = Number(m[1])
+    const unit = m[2]
+    switch (unit) {
+      case 's':
+        return n * 1000
+      case 'm':
+        return n * 60 * 1000
+      case 'h':
+        return n * 60 * 60 * 1000
+      case 'd':
+        return n * 24 * 60 * 60 * 1000
+      default:
+        return undefined
+    }
+  }
+
+  const accessMs = parseExpiryToMs(process.env.JWT_EXPIRES_IN as string | undefined) ?? 0
+  const refreshMs = parseExpiryToMs(process.env.JWT_REFRESH_EXPIRES_IN as string | undefined) ?? 0
+
+  res.cookie('access_token', accessToken, {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: 'lax',
+    path: '/api',
+    maxAge: accessMs,
+  })
+  res.cookie('refresh_token', refreshToken, {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: 'lax',
+    path: '/api/auth',
+    maxAge: refreshMs,
   })
 
   return res.status(200).json(
     buildResponse(
       {
-        accessToken,
-        refreshToken,
         user: {
           id: user.id,
           name: user.name,
@@ -291,10 +282,15 @@ export async function verifyAdminOtp(req: Request, res: Response) {
 export async function resendAdminOtp(req: Request, res: Response) {
   const data = AdminOtpResendSchema.parse(req.body)
   const meta = getRequestMeta(req)
-  const email = data.email.trim().toLowerCase()
+  // Expect a server-issued challengeId to identify which OTP to resend
+  const challengeId = data.challengeId
 
-  const user = await prisma.user.findUnique({ where: { email } })
+  const existing = await prisma.emailOtp.findUnique({ where: { id: challengeId } })
+  if (!existing) {
+    return res.status(400).json({ success: false, error: 'Invalid challenge' })
+  }
 
+  const user = await prisma.user.findUnique({ where: { id: existing.userId } })
   if (!user || !user.password || (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN')) {
     return res.status(401).json({ success: false, error: 'Invalid credentials' })
   }
@@ -309,28 +305,16 @@ export async function resendAdminOtp(req: Request, res: Response) {
   })
 
   if (recentOtp && !recentOtp.revokedAt && !recentOtp.usedAt && recentOtp.createdAt.getTime() + OTP_RESEND_COOLDOWN_MS > Date.now()) {
-    return res.status(429).json({
-      success: false,
-      error: 'A new verification code was sent recently. Please wait before requesting another one.',
-    })
+    return res.status(429).json({ success: false, error: 'A new verification code was sent recently. Please wait before requesting another one.' })
   }
 
   try {
-    await issueAdminOtp(user.id)
-    await logActivity({
-      userId: user.id,
-      action: 'OTP_SENT',
-      description: 'Admin verification code resent',
-      ...meta,
-    })
-
-    return res.status(200).json(buildResponse({ requiresOtp: true }, 'A new verification code has been sent.'))
+    const { otpId } = await issueAdminOtp(user.id)
+    await logActivity({ userId: user.id, action: 'OTP_SENT', description: 'Admin verification code resent', ...meta })
+    return res.status(200).json(buildResponse({ requiresOtp: true, challengeId: otpId }, 'A new verification code has been sent.'))
   } catch (error) {
     console.error('[Auth] Admin OTP resend failed:', error)
-    return res.status(503).json({
-      success: false,
-      error: 'Unable to send a new verification code right now. Please try again later.',
-    })
+    return res.status(503).json({ success: false, error: 'Unable to send a new verification code right now. Please try again later.' })
   }
 }
 
@@ -381,6 +365,34 @@ export async function staffLogin(req: Request, res: Response) {
   const accessToken = generateAccessToken(payload)
   const refreshToken = generateRefreshToken(payload)
 
+  // Set cookies for staff login
+  const isProd = process.env.NODE_ENV === 'production'
+  const parseExpiryToMs = (v: string | undefined) => {
+    if (!v) return undefined
+    const m = v.match(/^(\d+)([smhd])$/)
+    if (!m) return undefined
+    const n = Number(m[1])
+    const unit = m[2]
+    switch (unit) {
+      case 's':
+        return n * 1000
+      case 'm':
+        return n * 60 * 1000
+      case 'h':
+        return n * 60 * 60 * 1000
+      case 'd':
+        return n * 24 * 60 * 60 * 1000
+      default:
+        return undefined
+    }
+  }
+
+  const accessMs = parseExpiryToMs(process.env.JWT_EXPIRES_IN as string | undefined) ?? 0
+  const refreshMs = parseExpiryToMs(process.env.JWT_REFRESH_EXPIRES_IN as string | undefined) ?? 0
+
+  res.cookie('access_token', accessToken, { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api', maxAge: accessMs })
+  res.cookie('refresh_token', refreshToken, { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api/auth', maxAge: refreshMs })
+
   await logActivity({
     userId: user.id,
     action: 'LOGIN_SUCCESS',
@@ -391,8 +403,6 @@ export async function staffLogin(req: Request, res: Response) {
   return res.status(200).json(
     buildResponse(
       {
-        accessToken,
-        refreshToken,
         user: {
           id: user.id,
           name: user.name,
@@ -497,23 +507,35 @@ export async function googleAuth(req: Request, res: Response) {
       description: 'Visitor Google login',
       ...meta,
     })
+    // Set cookies
+    const isProd = process.env.NODE_ENV === 'production'
+    const parseExpiryToMs = (v: string | undefined) => {
+      if (!v) return undefined
+      const m = v.match(/^(\d+)([smhd])$/)
+      if (!m) return undefined
+      const n = Number(m[1])
+      const unit = m[2]
+      switch (unit) {
+        case 's':
+          return n * 1000
+        case 'm':
+          return n * 60 * 1000
+        case 'h':
+          return n * 60 * 60 * 1000
+        case 'd':
+          return n * 24 * 60 * 60 * 1000
+        default:
+          return undefined
+      }
+    }
 
-    return res.status(200).json(
-      buildResponse(
-        {
-          accessToken,
-          refreshToken,
-          user: {
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            image: user.image,
-          },
-        },
-        'Google sign-in successful'
-      )
-    )
+    const accessMs = parseExpiryToMs(process.env.JWT_EXPIRES_IN as string | undefined) ?? 0
+    const refreshMs = parseExpiryToMs(process.env.JWT_REFRESH_EXPIRES_IN as string | undefined) ?? 0
+
+    res.cookie('access_token', accessToken, { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api', maxAge: accessMs })
+    res.cookie('refresh_token', refreshToken, { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api/auth', maxAge: refreshMs })
+
+    return res.status(200).json(buildResponse({ user: { id: user.id, name: user.name, email: user.email, role: user.role, image: user.image } }, 'Google sign-in successful'))
   } catch (err) {
     console.error('Google auth error:', err)
     return res.status(500).json({ success: false, error: 'Google authentication failed' })
@@ -572,16 +594,35 @@ export async function visitorRegister(req: Request, res: Response) {
     ...meta,
   })
 
-  return res.status(201).json(
-    buildResponse(
-      {
-        accessToken,
-        refreshToken,
-        user: { id: user.id, name: user.name, email: user.email, role: user.role },
-      },
-      'Account created successfully'
-    )
-  )
+  // Set cookies for visitor registration
+  const isProd = process.env.NODE_ENV === 'production'
+  const parseExpiryToMs = (v: string | undefined) => {
+    if (!v) return undefined
+    const m = v.match(/^(\d+)([smhd])$/)
+    if (!m) return undefined
+    const n = Number(m[1])
+    const unit = m[2]
+    switch (unit) {
+      case 's':
+        return n * 1000
+      case 'm':
+        return n * 60 * 1000
+      case 'h':
+        return n * 60 * 60 * 1000
+      case 'd':
+        return n * 24 * 60 * 60 * 1000
+      default:
+        return undefined
+    }
+  }
+
+  const accessMs = parseExpiryToMs(process.env.JWT_EXPIRES_IN as string | undefined) ?? 0
+  const refreshMs = parseExpiryToMs(process.env.JWT_REFRESH_EXPIRES_IN as string | undefined) ?? 0
+
+  res.cookie('access_token', accessToken, { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api', maxAge: accessMs })
+  res.cookie('refresh_token', refreshToken, { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api/auth', maxAge: refreshMs })
+
+  return res.status(201).json(buildResponse({ user: { id: user.id, name: user.name, email: user.email, role: user.role } }, 'Account created successfully'))
 }
 
 // ─── Visitor Login ────────────────────────────────────
@@ -640,21 +681,41 @@ export async function visitorLogin(req: Request, res: Response) {
     ...meta,
   })
 
-  return res.status(200).json(
-    buildResponse(
-      {
-        accessToken,
-        refreshToken,
-        user: { id: user.id, name: user.name, email: user.email, role: user.role },
-      },
-      'Login successful'
-    )
-  )
+  // Set cookies for visitor login
+  const isProd = process.env.NODE_ENV === 'production'
+  const parseExpiryToMs = (v: string | undefined) => {
+    if (!v) return undefined
+    const m = v.match(/^(\d+)([smhd])$/)
+    if (!m) return undefined
+    const n = Number(m[1])
+    const unit = m[2]
+    switch (unit) {
+      case 's':
+        return n * 1000
+      case 'm':
+        return n * 60 * 1000
+      case 'h':
+        return n * 60 * 60 * 1000
+      case 'd':
+        return n * 24 * 60 * 60 * 1000
+      default:
+        return undefined
+    }
+  }
+
+  const accessMs = parseExpiryToMs(process.env.JWT_EXPIRES_IN as string | undefined) ?? 0
+  const refreshMs = parseExpiryToMs(process.env.JWT_REFRESH_EXPIRES_IN as string | undefined) ?? 0
+
+  res.cookie('access_token', accessToken, { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api', maxAge: accessMs })
+  res.cookie('refresh_token', refreshToken, { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api/auth', maxAge: refreshMs })
+
+  return res.status(200).json(buildResponse({ user: { id: user.id, name: user.name, email: user.email, role: user.role } }, 'Login successful'))
 }
 
 // ─── Refresh Token ────────────────────────────────────
 export async function refresh(req: Request, res: Response) {
-  const { refreshToken } = req.body
+  // Refresh token is expected in a secure HttpOnly cookie
+  const refreshToken = req.cookies?.refresh_token
 
   if (!refreshToken) {
     return res.status(400).json({ success: false, error: 'Refresh token required' })
@@ -680,10 +741,43 @@ export async function refresh(req: Request, res: Response) {
     }
     const accessToken = generateAccessToken(newPayload)
 
-    return res.status(200).json(buildResponse({ accessToken }, 'Token refreshed'))
+    const isProd = process.env.NODE_ENV === 'production'
+    const parseExpiryToMs = (v: string | undefined) => {
+      if (!v) return undefined
+      const m = v.match(/^(\d+)([smhd])$/)
+      if (!m) return undefined
+      const n = Number(m[1])
+      const unit = m[2]
+      switch (unit) {
+        case 's':
+          return n * 1000
+        case 'm':
+          return n * 60 * 1000
+        case 'h':
+          return n * 60 * 60 * 1000
+        case 'd':
+          return n * 24 * 60 * 60 * 1000
+        default:
+          return undefined
+      }
+    }
+
+    const accessMs = parseExpiryToMs(process.env.JWT_EXPIRES_IN as string | undefined) ?? 0
+
+    res.cookie('access_token', accessToken, { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api', maxAge: accessMs })
+
+    return res.status(200).json(buildResponse({}, 'Token refreshed'))
   } catch {
     return res.status(401).json({ success: false, error: 'Invalid refresh token' })
   }
+}
+
+export async function logout(req: Request, res: Response) {
+  const isProd = process.env.NODE_ENV === 'production'
+  // Clear cookies using same attributes
+  res.clearCookie('access_token', { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api' })
+  res.clearCookie('refresh_token', { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api/auth' })
+  return res.status(200).json(buildResponse(null, 'Logged out'))
 }
 
 // ─── Get Current User ─────────────────────────────────

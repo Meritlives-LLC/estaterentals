@@ -7,12 +7,12 @@ export const LoginSchema = z.object({
 })
 
 export const AdminOtpVerifySchema = z.object({
-  email: z.string().trim().min(1, 'Email required'),
+  challengeId: z.string().min(1, 'Challenge identifier required'),
   otp: z.string().regex(/^\d{6}$/, 'OTP must be a 6-digit code'),
 })
 
 export const AdminOtpResendSchema = z.object({
-  email: z.string().trim().min(1, 'Email required'),
+  challengeId: z.string().min(1, 'Challenge identifier required'),
 })
 
 export const StaffLoginSchema = z.object({
