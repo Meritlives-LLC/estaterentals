@@ -70,6 +70,18 @@ const nextConfig = {
       },
     ]
   },
+  async rewrites() {
+    // Proxy /api requests to the backend API in production via a server-side
+    // rewrite. The target is configurable via `ESTATE_API_URL` (server-only)
+    // or `NEXT_PUBLIC_API_URL` as a fallback.
+    const target = (process.env.ESTATE_API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000').replace(/\/$/, '')
+    return [
+      {
+        source: '/api/:path*',
+        destination: `${target}/api/:path*`,
+      },
+    ]
+  },
 }
 
 module.exports = nextConfig

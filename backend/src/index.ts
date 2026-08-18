@@ -22,7 +22,12 @@ const app = express()
 const PORT = process.env.PORT ?? 5000
 
 // Allowed origins used for CORS and included in CSP connectSrc
-const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? 'http://localhost:3000')
+// ALLOWED_ORIGINS can be a comma-separated list. In production, if not
+// explicitly configured, include the Vercel frontend origin so deployed
+// frontend can make CORS requests during non-proxied flows (keeps dev working).
+const isProd = process.env.NODE_ENV === 'production'
+const defaultOrigins = isProd ? 'http://localhost:3000,https://estaterentals-1sm8.vercel.app' : 'http://localhost:3000'
+const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? defaultOrigins)
   .split(',')
   .map((o) => o.trim())
 
@@ -32,8 +37,6 @@ if (process.env.TRUST_PROXY === '1' || process.env.TRUST_PROXY === 'true') {
   app.set('trust proxy', 1)
 }
 
-// Configure Helmet with a production-aware CSP and HSTS
-const isProd = process.env.NODE_ENV === 'production'
 app.use(
   helmet({
     contentSecurityPolicy: isProd

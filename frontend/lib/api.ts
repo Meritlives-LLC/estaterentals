@@ -1,7 +1,12 @@
 // frontend/lib/api.ts
 import axios from 'axios'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000/api'
+// In production the frontend should proxy API requests through Next.js
+// so the browser uses the same origin (`/api`). In development allow an
+// explicit API URL (e.g. http://localhost:5000/api).
+const API_URL = process.env.NODE_ENV === 'production'
+  ? '/api'
+  : process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:5000/api'
 
 export const api = axios.create({
   baseURL: API_URL,
@@ -12,6 +17,9 @@ export const api = axios.create({
 // No client-side token attachment — server sets HttpOnly cookies
 
 // Auto-refresh on 401
+// Shared refresh lock to avoid multiple simultaneous refresh requests.
+let refreshPromise: Promise<any> | null = null
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -21,12 +29,24 @@ api.interceptors.response.use(
       original._retry = true
 
       try {
-        // Ask server to refresh using HttpOnly cookie
-        await axios.post(`${API_URL}/auth/refresh`, {}, { withCredentials: true })
+        if (!refreshPromise) {
+          refreshPromise = axios
+            .post(`${API_URL}/auth/refresh`, {}, { withCredentials: true })
+            .then((r) => r)
+            .catch((e) => {
+              throw e
+            })
+            .finally(() => {
+              refreshPromise = null
+            })
+        }
+
+        await refreshPromise
         // Retry original request — cookies will be sent automatically
         return api(original)
-      } catch {
-        // Refresh failed — let the page handle sign-out
+      } catch (err) {
+        // Refresh failed — clear auth state if needed and reject
+        return Promise.reject(err)
       }
     }
 
