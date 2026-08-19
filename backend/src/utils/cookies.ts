@@ -20,16 +20,31 @@ const parseExpiryToMs = (v: string | undefined) => {
   }
 }
 
+// Defaults must match backend/src/utils/jwt.ts when env is unset.
+// maxAge: 0 would expire the cookie immediately in Express.
+const DEFAULT_ACCESS_MS = 7 * 24 * 60 * 60 * 1000 // 7d (matches jwt.ts default)
+const DEFAULT_REFRESH_MS = 30 * 24 * 60 * 60 * 1000 // 30d
+
+/**
+ * access_token path MUST be `/` so:
+ * - Next.js middleware on /admin/* can read it
+ * - API routes under /api/* still receive it
+ *
+ * refresh_token stays on /api/auth (only used by POST /api/auth/refresh).
+ * No Domain attribute — host-only cookies for same-origin Render deploy.
+ */
 export function setAuthCookies(res: Response, accessToken: string, refreshToken: string) {
   const isProd = process.env.NODE_ENV === 'production'
-  const accessMs = parseExpiryToMs(process.env.JWT_EXPIRES_IN as string | undefined) ?? 0
-  const refreshMs = parseExpiryToMs(process.env.JWT_REFRESH_EXPIRES_IN as string | undefined) ?? 0
+  const accessMs =
+    parseExpiryToMs(process.env.JWT_EXPIRES_IN as string | undefined) ?? DEFAULT_ACCESS_MS
+  const refreshMs =
+    parseExpiryToMs(process.env.JWT_REFRESH_EXPIRES_IN as string | undefined) ?? DEFAULT_REFRESH_MS
 
   res.cookie('access_token', accessToken, {
     httpOnly: true,
     secure: isProd,
     sameSite: 'lax',
-    path: '/api',
+    path: '/',
     maxAge: accessMs,
   })
 
@@ -44,14 +59,28 @@ export function setAuthCookies(res: Response, accessToken: string, refreshToken:
 
 export function setAccessCookie(res: Response, accessToken: string) {
   const isProd = process.env.NODE_ENV === 'production'
-  const accessMs = parseExpiryToMs(process.env.JWT_EXPIRES_IN as string | undefined) ?? 0
-  res.cookie('access_token', accessToken, { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api', maxAge: accessMs })
+  const accessMs =
+    parseExpiryToMs(process.env.JWT_EXPIRES_IN as string | undefined) ?? DEFAULT_ACCESS_MS
+
+  res.cookie('access_token', accessToken, {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: accessMs,
+  })
 }
 
 export function clearAuthCookies(res: Response) {
   const isProd = process.env.NODE_ENV === 'production'
-  res.clearCookie('access_token', { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api' })
-  res.clearCookie('refresh_token', { httpOnly: true, secure: isProd, sameSite: 'lax', path: '/api/auth' })
+  const base = { httpOnly: true, secure: isProd, sameSite: 'lax' as const }
+
+  // Current paths
+  res.clearCookie('access_token', { ...base, path: '/' })
+  res.clearCookie('refresh_token', { ...base, path: '/api/auth' })
+
+  // Clear legacy path=/api access cookies from earlier deploys
+  res.clearCookie('access_token', { ...base, path: '/api' })
 }
 
 export default { setAuthCookies, setAccessCookie, clearAuthCookies }
