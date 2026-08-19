@@ -9,7 +9,7 @@ import Image from 'next/image'
 import { propertyApi, uploadApi } from '@/lib/api'
 import {
   Upload, X, Plus, CheckCircle, AlertCircle,
-  Loader2, ImagePlus, Copy, ExternalLink, MapPin,
+  Loader2, ImagePlus, Copy, ExternalLink, MapPin, Film, FileText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -59,6 +59,7 @@ export function PropertyForm({ property }: { property?: any }) {
   const [submitError, setSubmitError] = useState('')
   const [submitted, setSubmitted] = useState(false)
   const [savedSlug, setSavedSlug] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<'details' | 'photos' | 'videos' | 'location'>('details')
 
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
     property?.latitude && property?.longitude
@@ -368,7 +369,33 @@ export function PropertyForm({ property }: { property?: any }) {
         </div>
       )}
 
+      {/* ── Tabs ─────────────────────────────────────────── */}
+      <div className="flex flex-wrap gap-1 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-2xl border border-slate-200/60 dark:border-slate-700/60">
+        {([
+          { id: 'details' as const, label: 'Details', icon: FileText },
+          { id: 'photos' as const, label: 'Photos', icon: ImagePlus },
+          { id: 'videos' as const, label: 'Videos', icon: Film },
+          { id: 'location' as const, label: 'Map & coordinates', icon: MapPin },
+        ]).map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveTab(tab.id)}
+            className={cn(
+              'flex-1 min-w-[7rem] flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
+              activeTab === tab.id
+                ? 'bg-white dark:bg-slate-900 text-orange-600 shadow-sm'
+                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            )}
+          >
+            <tab.icon className="w-4 h-4 shrink-0" />
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
       {/* ── Images ──────────────────────────────────────── */}
+      <div className={cn(activeTab !== 'photos' && 'hidden')}>
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 p-6">
         <h2 className="font-display font-semibold text-slate-900 dark:text-white mb-1 flex items-center gap-2">
           <ImagePlus className="w-5 h-5 text-orange-500" />
@@ -476,7 +503,10 @@ export function PropertyForm({ property }: { property?: any }) {
         />
       </div>
 
+      </div>{/* end photos tab */}
+
       {/* ── Basic Info ──────────────────────────────────── */}
+      <div className={cn(activeTab !== 'details' && 'hidden')}>
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 p-6">
         <h2 className="font-display font-semibold text-slate-900 dark:text-white mb-5">Basic Information</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -553,8 +583,10 @@ export function PropertyForm({ property }: { property?: any }) {
           </div>
         </div>
       </div>
+      </div>{/* end details tab — basic info only */}
 
       {/* ── Location ────────────────────────────────────── */}
+      <div className={cn(activeTab !== 'location' && 'hidden', 'space-y-6')}>
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 p-6">
         <h2 className="font-display font-semibold text-slate-900 dark:text-white mb-5">Location Details</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -604,8 +636,69 @@ export function PropertyForm({ property }: { property?: any }) {
           ) : locationStatus === 'error' ? (
             <><AlertCircle className="w-4 h-4 shrink-0" /> Unable to find this address. Please adjust the location manually.</>
           ) : (
-            <><MapPin className="w-4 h-4 shrink-0" /> Drag the marker to adjust the exact location</>
+            <><MapPin className="w-4 h-4 shrink-0" /> Enter address above, then find on map or drag the marker</>
           )}
+        </div>
+
+        <div className="flex flex-wrap gap-2 mb-4">
+          <button
+            type="button"
+            disabled={geocoding}
+            onClick={() => {
+              const a = watchedAddress || ''
+              const c = watchedCity || ''
+              const s = watchedState || ''
+              if (!a && !c && !s) {
+                setLocationStatus('error')
+                return
+              }
+              void geocode(a, c, s)
+            }}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white transition-colors"
+          >
+            {geocoding ? <Loader2 className="w-4 h-4 animate-spin" /> : <MapPin className="w-4 h-4" />}
+            Find on map
+          </button>
+          <p className="text-xs text-slate-400 self-center">
+            Uses address, city and state to set latitude / longitude for the public map.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1.5">Latitude</label>
+            <input
+              type="number"
+              step="any"
+              className={inputCls}
+              value={coords?.lat ?? ''}
+              onChange={(e) => {
+                const lat = parseFloat(e.target.value)
+                if (Number.isFinite(lat)) {
+                  setCoords((c) => ({ lat, lng: c?.lng ?? 0 }))
+                  setLocationStatus('manual')
+                }
+              }}
+              placeholder="e.g. 6.5244"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1.5">Longitude</label>
+            <input
+              type="number"
+              step="any"
+              className={inputCls}
+              value={coords?.lng ?? ''}
+              onChange={(e) => {
+                const lng = parseFloat(e.target.value)
+                if (Number.isFinite(lng)) {
+                  setCoords((c) => ({ lat: c?.lat ?? 0, lng }))
+                  setLocationStatus('manual')
+                }
+              }}
+              placeholder="e.g. 3.3792"
+            />
+          </div>
         </div>
 
         <div
@@ -614,15 +707,20 @@ export function PropertyForm({ property }: { property?: any }) {
         />
       </div>
 
+      </div>{/* end location tab */}
+
       {/* ── Videos (Bunny Stream via TUS) ───────────────── */}
+      <div className={cn(activeTab !== 'videos' && 'hidden')}>
       <VideoUploader
         propertyId={isEditing ? property.id : undefined}
         videos={videos}
         onChange={setVideos}
         disabled={isSubmitting}
       />
+      </div>
 
       {/* ── Amenities ───────────────────────────────────── */}
+      <div className={cn(activeTab !== 'details' && 'hidden')}>
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 p-6">
         <h2 className="font-display font-semibold text-slate-900 dark:text-white mb-4">Amenities & Features</h2>
 
@@ -675,6 +773,9 @@ export function PropertyForm({ property }: { property?: any }) {
           </button>
         </div>
       </div>
+
+      </div>{/* end amenities details visibility */}
+      </div>{/* end details tab (basic) */}
 
       {/* ── Submit ──────────────────────────────────────── */}
       <div className="flex gap-4">

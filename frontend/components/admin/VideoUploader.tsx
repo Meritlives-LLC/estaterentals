@@ -365,9 +365,17 @@ export function VideoUploader({
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">
-                    {v.title || v.fileName}
-                  </p>
+                  <input
+                    type="text"
+                    value={v.title || ''}
+                    disabled={disabled}
+                    onChange={(e) =>
+                      patchVideo(v.localId, { title: e.target.value })
+                    }
+                    placeholder={v.fileName || 'Video title'}
+                    className="flex-1 min-w-0 text-sm font-medium text-slate-800 dark:text-slate-100 bg-transparent border border-transparent hover:border-slate-200 dark:hover:border-slate-600 focus:border-orange-500 rounded-lg px-2 py-1 outline-none"
+                    title="Video title shown on the listing"
+                  />
                   <button
                     type="button"
                     onClick={() => removeVideo(v.localId)}
