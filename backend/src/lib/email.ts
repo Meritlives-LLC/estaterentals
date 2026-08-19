@@ -196,7 +196,9 @@ export async function sendAdminLoginOtp(
       return false
     }
 
-    const result = await response.json().catch(() => null)
+    const result = (await response.json().catch(() => null)) as
+      | { id?: string }
+      | null
 
     console.log(
       '[Email] Admin OTP sent successfully:',
