@@ -774,8 +774,7 @@ export function PropertyForm({ property }: { property?: any }) {
         </div>
       </div>
 
-      </div>{/* end amenities details visibility */}
-      </div>{/* end details tab (basic) */}
+      </div>{/* end amenities (details tab) */}
 
       {/* ── Submit ──────────────────────────────────────── */}
       <div className="flex gap-4">
